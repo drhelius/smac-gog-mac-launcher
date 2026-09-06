@@ -1,0 +1,50 @@
+name: Sign and Notarize Preview
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  notarize:
+    if: github.repository_owner == 'drhelius'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test && make app
+      - name: Import Developer ID and notarize
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.PROD_MACOS_CERTIFICATE_PWD }}
+          MACOS_CERTIFICATE_NAME: ${{ secrets.PROD_MACOS_CERTIFICATE_NAME }}
+          MACOS_CI_KEYCHAIN_PWD: ${{ secrets.PROD_MACOS_CI_KEYCHAIN_PWD }}
+          PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_APPLE_ID }}
+          PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_TEAM_ID }}
+          PROD_MACOS_NOTARIZATION_PWD: ${{ secrets.PROD_MACOS_NOTARIZATION_PWD }}
+          NOTARY_PROFILE: centauri-ci
+        run: |
+          set -eu
+          cert="$RUNNER_TEMP/centauri-certificate.p12"
+          keychain="$RUNNER_TEMP/centauri-build.keychain-db"
+          trap 'rm -f "$cert"; security delete-keychain "$keychain" || true' EXIT
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$cert"
+          security create-keychain -p "$MACOS_CI_KEYCHAIN_PWD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$MACOS_CI_KEYCHAIN_PWD" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          security import "$cert" -k "$keychain" -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_CI_KEYCHAIN_PWD" "$keychain"
+          rm -f "$cert"
+          make sign
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" --keychain "$keychain" --apple-id "$PROD_MACOS_NOTARIZATION_APPLE_ID" --team-id "$PROD_MACOS_NOTARIZATION_TEAM_ID" --password "$PROD_MACOS_NOTARIZATION_PWD"
+          make notarize
+          python3 scripts/check_package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Centauri-macOS-notarized-preview
+          path: |
+            dist/Centauri-*-macOS.zip
+            dist/SHA256SUMS
+            dist/notarization.json
+          if-no-files-found: error
