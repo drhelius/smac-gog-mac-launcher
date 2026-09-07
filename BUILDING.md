@@ -1,4 +1,4 @@
-# Contributing
+# Build instructions
 
 ## Build
 

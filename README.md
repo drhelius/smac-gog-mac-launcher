@@ -22,4 +22,4 @@ Choose fullscreen or a movable window, watch cutscenes, and adjust display, audi
 
 No game files are included. Your original installation is preserved.
 
-[Build from source](CONTRIBUTING.md) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY.md)
+[Build from source](BUILDING.md) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY.md)

@@ -68,7 +68,7 @@ def build(destination):
     dlltool = os.environ.get("LLVM_DLLTOOL") or shutil.which("llvm-dlltool")
     linker = os.environ.get("LLD") or shutil.which("lld-link") or shutil.which("lld")
     if not dlltool or not linker:
-        raise SystemExit("Movie hook needs LLVM's llvm-dlltool and lld-link. Install llvm and lld, and add their bin directories to PATH. See CONTRIBUTING.md.")
+        raise SystemExit("Movie hook needs LLVM's llvm-dlltool and lld-link. Install llvm and lld, and add their bin directories to PATH. See BUILDING.md.")
     hook_dir = work / "hook"
     hook_dir.mkdir(exist_ok=True)
     run(["xcrun", "clang", "--target=i686-pc-windows-msvc", "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror",
