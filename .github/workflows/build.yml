@@ -1,35 +1,138 @@
-name: Build and Test
+name: Build and Release
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
+    tags: ['*']
+    paths-ignore: ['**.md']
   pull_request:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  macos:
-    runs-on: macos-15
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - name: Install movie-hook build tools
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test
+        run: make test
+
+  macos:
+    name: macOS universal
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.artifact.outputs.name }}
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Get build number
+        id: build
+        run: |
+          echo "number=$(python3 scripts/git_version.py)" >> "$GITHUB_OUTPUT"
+      - name: Check release version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: python3 scripts/release.py check-tag --tag "$GITHUB_REF_NAME"
+      - name: Install dependencies
         run: |
           brew install llvm lld
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
-      - name: Test the importer and runtime handling
-        run: make test
-      - name: Build universal application
-        run: make dist
-      - name: Verify package contains no game or runtime files
-        run: python3 scripts/check_package.py
-      - uses: actions/upload-artifact@v4
+      - name: Build application
+        run: make app
+      - name: Sign and notarize
+        id: sign
+        if: github.event_name != 'pull_request' && github.repository == 'drhelius/smac-gog-mac-launcher'
+        env:
+          REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
+          MACOS_CERTIFICATE: ${{ secrets.PROD_MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.PROD_MACOS_CERTIFICATE_PWD }}
+          MACOS_CERTIFICATE_NAME: ${{ secrets.PROD_MACOS_CERTIFICATE_NAME }}
+          MACOS_CI_KEYCHAIN_PWD: ${{ secrets.PROD_MACOS_CI_KEYCHAIN_PWD }}
+          PROD_MACOS_NOTARIZATION_APPLE_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_APPLE_ID }}
+          PROD_MACOS_NOTARIZATION_TEAM_ID: ${{ secrets.PROD_MACOS_NOTARIZATION_TEAM_ID }}
+          PROD_MACOS_NOTARIZATION_PWD: ${{ secrets.PROD_MACOS_NOTARIZATION_PWD }}
+        run: bash scripts/notarize-ci.sh
+      - name: Package and verify
+        run: |
+          python3 scripts/release.py package
+          python3 scripts/check_package.py
+      - name: Name artifact
+        id: artifact
+        env:
+          BUILD_NUMBER: ${{ steps.build.outputs.number }}
+          SIGNING: ${{ steps.sign.outputs.signed == 'true' && 'notarized' || 'adhoc' }}
+        run: echo "name=SMAC-Launcher-$BUILD_NUMBER-macOS-$SIGNING" >> "$GITHUB_OUTPUT"
+      - name: Upload application and matching source
+        uses: actions/upload-artifact@v7
         with:
-          name: SMAC-Launcher-macOS
+          name: ${{ steps.artifact.outputs.name }}
           path: |
-            dist/SMAC-Launcher-*-macOS.zip
-            dist/SHA256SUMS
+            dist/SMAC-Launcher-${{ steps.build.outputs.number }}-macOS.zip
             dist/ffmpeg-*.tar.xz
+            dist/SHA256SUMS
           if-no-files-found: error
+          compression-level: 0
+      - name: Upload notarization report
+        if: always() && steps.sign.outcome != 'skipped'
+        uses: actions/upload-artifact@v7
+        with:
+          name: SMAC-Launcher-${{ steps.build.outputs.number }}-notarization
+          path: dist/notarization*.json
+          if-no-files-found: ignore
+
+  release:
+    name: Draft release
+    needs: macos
+    if: >-
+      startsWith(github.ref, 'refs/tags/') &&
+      github.event_name != 'pull_request' &&
+      github.repository == 'drhelius/smac-gog-mac-launcher' &&
+      needs.macos.outputs.signed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download notarized artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.macos.outputs.artifact }}
+          path: dist
+      - name: Verify release files
+        run: |
+          python3 scripts/release.py check-tag --tag "$GITHUB_REF_NAME"
+          python3 scripts/check_package.py
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/SMAC-Launcher-$GITHUB_REF_NAME-macOS.zip" dist/ffmpeg-*.tar.xz dist/SHA256SUMS \
+            --verify-tag --title "SMAC Launcher $GITHUB_REF_NAME" --draft --generate-notes

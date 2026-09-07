@@ -150,7 +150,7 @@ public final class CentauriService
         }
         else if !options.skipIntro && options.moviesEnabled
         {
-            throw CentauriError.message("Native movie support is unavailable for this build or game version. Keep Skip opening movie enabled.")
+            throw CentauriError.message("Native movie support is unavailable for this build or game version. Turn off Opening movie in the launcher.")
         }
         // A custom drive letter can be reassigned by Wine's mounted-volume discovery.
         // Resolve the executable from our explicit working directory, as in the verified prototype.
@@ -238,7 +238,7 @@ public final class CentauriService
     {
         let directory = destination.appendingPathComponent("SMAC-Launcher-Diagnostics-" + UUID().uuidString)
         try Files.makeDirectory(directory)
-        let report = "SMAC Launcher 0.1.0\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nRuntime: \(RuntimeDescriptor.pinned.id)\nInstalled: \(manifest != nil)\nKnown legacy executables: \(manifest?.recognizedLegacyBuild == true)\n"
+        let report = "SMAC Launcher \(BuildInfo.version)\nBuild: \(BuildInfo.revision)\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nRuntime: \(RuntimeDescriptor.pinned.id)\nInstalled: \(manifest != nil)\nKnown legacy executables: \(manifest?.recognizedLegacyBuild == true)\n"
         try report.write(to: directory.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
         for name in ["install.log", "game.log", "runtime.log", "runtime-check.log", "movies.log"]
         {

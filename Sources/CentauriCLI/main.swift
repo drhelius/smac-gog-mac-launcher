@@ -69,15 +69,6 @@ func main() throws
         print("Data: \(service.layout.root.path)")
         print("Installed: \(service.manifest != nil)")
         print("Runtime: \(RuntimeInstaller.installed(layout: service.layout)?.descriptor.id ?? "not installed")")
-    case "prepare-movie-test":
-        guard args.count == 2, let source = source,
-              let game = ["smac": Game.alphaCentauri, "smacx": Game.alienCrossfire][args[1]] else
-        {
-            throw CentauriError.message("Use prepare-movie-test smac|smacx --source GAME_DIRECTORY")
-        }
-        try MoviePatch.executable(original: source.appendingPathComponent(game.rawValue), game: game,
-            destination: source.appendingPathComponent("centauri-" + game.rawValue))
-        print("Prepared a derived executable; the original is unchanged.")
     case "diagnostics":
         guard let source = source else { throw CentauriError.message("diagnostics requires --source OUTPUT_DIRECTORY") }
         try service.exportDiagnostics(to: source)

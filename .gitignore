@@ -13,6 +13,11 @@ dist/
 *.SAV
 *.key
 *.p12
+*.pfx
+*.pem
+*.keychain-db
+.env
+.env.*
 *.mobileprovision
 __pycache__/
 *.pyc

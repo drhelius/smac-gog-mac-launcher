@@ -7,6 +7,8 @@ app:
 
 test:
 	swift test
+	python3 -m unittest discover -s Tests/Packaging -p 'test_*.py'
+	bash -n scripts/setup-secrets.sh scripts/notarize-ci.sh
 
 dist: app
 	python3 scripts/release.py package

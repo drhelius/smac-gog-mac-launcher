@@ -218,13 +218,4 @@ final class SettingsController: NSObject
 
     @objc private func cancel() { window.sheetParent?.endSheet(window); window.orderOut(nil) }
     @objc private func configureWine() { cancel(); wine() }
-
-    func render(to path: String)
-    {
-        guard let view = window.contentView else { return }
-        view.layoutSubtreeIfNeeded()
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.cacheDisplay(in: view.bounds, to: bitmap) }
-        try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
-    }
 }

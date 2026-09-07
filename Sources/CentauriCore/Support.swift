@@ -129,7 +129,7 @@ public enum Files
         let values = try FileManager.default.attributesOfFileSystem(forPath: url.path)
         if let available = values[.systemFreeSize] as? NSNumber, available.int64Value < bytes
         {
-            throw CentauriError.message("Not enough free space. This operation needs at least \(bytes / 1_000_000_000 + 1) GB free.")
+            throw CentauriError.message("Not enough free space. This operation needs at least \((bytes + 999_999_999) / 1_000_000_000) GB free.")
         }
     }
 

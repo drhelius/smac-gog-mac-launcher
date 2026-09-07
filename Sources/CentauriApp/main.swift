@@ -1,7 +1,7 @@
 import AppKit
 import CentauriCore
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation
 {
     private let service: CentauriService =
     {
@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     private let sourceButton = NSButton()
     private let saveImportButton = NSButton()
     private let settingsButton = NSButton()
+    private var advancedButton: NSButton!
+    private var savesButton: NSButton!
+    private var filesButton: NSButton!
     private let display = NSSegmentedControl(labels: ["Fullscreen", "Window"], trackingMode: .selectOne, target: nil, action: nil)
     private let resolution = NSPopUpButton()
     private let openingMovie = NSSwitch()
@@ -49,32 +52,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         refresh()
         status.stringValue = ""
         status.isHidden = true
-        if let index = CommandLine.arguments.firstIndex(of: "--render-ui"), CommandLine.arguments.indices.contains(index + 1)
-        {
-            DispatchQueue.main.async
-            {
-                self.window.contentView?.layoutSubtreeIfNeeded()
-                self.render(self.window.contentView!, to: CommandLine.arguments[index + 1])
-                if let settingsIndex = CommandLine.arguments.firstIndex(of: "--render-settings"), CommandLine.arguments.indices.contains(settingsIndex + 1)
-                {
-                    self.showSettings()
-                    self.settingsController?.render(to: CommandLine.arguments[settingsIndex + 1])
-                }
-                exit(0)
-            }
-        }
-        else
-        {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func render(_ view: NSView, to path: String)
+    func applicationDidBecomeActive(_ notification: Notification)
     {
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.cacheDisplay(in: view.bounds, to: bitmap) }
-        try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        guard window != nil, token == nil, window.attachedSheet == nil else { return }
+        options = service.options()
+        refresh()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool
+    {
+        switch menuItem.action
+        {
+        case #selector(showSettings), #selector(installRosetta):
+            return token == nil && window?.attachedSheet == nil
+        case #selector(openConfiguration):
+            return token == nil && service.manifest != nil
+        case #selector(openSaves), #selector(openGameFiles):
+            return service.manifest != nil
+        default:
+            return true
+        }
     }
 
     private func createMenu()
@@ -138,8 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         brandIcon.imageScaling = .scaleProportionallyUpOrDown
         brandIcon.widthAnchor.constraint(equalToConstant: 40).isActive = true
         brandIcon.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
-        let brandText = Interface.stack([Interface.label("SMAC Launcher", size: 16, weight: .semibold), Interface.label(version, size: 11, color: .secondaryLabelColor)], spacing: 3)
+        let brandText = Interface.stack([Interface.label("SMAC Launcher", size: 16, weight: .semibold), Interface.label(BuildInfo.version, size: 11, color: .secondaryLabelColor)], spacing: 3)
         let brand = Interface.stack([brandIcon, brandText], vertical: false, spacing: 10)
         let gamesTitle = Interface.label("GAMES", size: 10, weight: .semibold, color: .secondaryLabelColor)
         let navigation = Interface.stack([brand, NSView(), gamesTitle], spacing: 14)
@@ -163,9 +163,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         settingsButton.bezelStyle = .rounded
         settingsButton.target = self
         settingsButton.action = #selector(showSettings)
-        let saved = Interface.button("Saved Games", symbol: "folder", target: self, action: #selector(openSaves))
-        let files = Interface.button("Game Files", symbol: "folder.badge.gearshape", target: self, action: #selector(openGameFiles))
-        let bottom = Interface.stack([saved, files, settingsButton, Interface.label("DrHelius", size: 10, color: .tertiaryLabelColor)], spacing: 12)
+        savesButton = Interface.button("Saved Games", symbol: "folder", target: self, action: #selector(openSaves))
+        filesButton = Interface.button("Game Files", symbol: "folder.badge.gearshape", target: self, action: #selector(openGameFiles))
+        let bottom = Interface.stack([savesButton!, filesButton!, settingsButton, Interface.label("DrHelius", size: 10, color: .tertiaryLabelColor)], spacing: 12)
         bottom.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(bottom)
         NSLayoutConstraint.activate([
@@ -204,12 +204,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         openingMovie.target = self
         openingMovie.setAccessibilityLabel("Opening movie")
         openingMovie.action = #selector(changeOpeningMovie)
-        let advanced = Interface.button("Advanced Settings…", target: self, action: #selector(showSettings))
+        advancedButton = Interface.button("Advanced Settings…", target: self, action: #selector(showSettings))
         displayGrid = NSGridView(views: [
             [Interface.label("Display"), display],
             [Interface.label("Window size"), resolution],
             [Interface.label("Opening movie"), openingMovie],
-            [NSView(), advanced]
+            [NSView(), advancedButton!]
         ])
         displayGrid.column(at: 0).width = 180
         displayGrid.columnSpacing = 20
@@ -279,6 +279,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         sourceButton.isEnabled = !busy
         saveImportButton.isEnabled = !busy
         settingsButton.isEnabled = !busy
+        advancedButton.isEnabled = !busy
+        savesButton.isEnabled = installed
+        filesButton.isEnabled = installed
         display.isEnabled = !busy
         resolution.isEnabled = !busy
         openingMovie.isEnabled = !busy && options.moviesEnabled
@@ -308,7 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     @objc private func changeOpeningMovie() { options.skipIntro = openingMovie.state != .on; saveSettings() }
     @objc private func changeResolution()
     {
-        if resolution.indexOfSelectedItem == 4 { showSettings(); return }
+        if resolution.indexOfSelectedItem == 4 { showSettings(); refresh(); return }
         let sizes = [(1024, 768), (1280, 800), (1600, 900), (1920, 1080)]
         let size = sizes[max(0, resolution.indexOfSelectedItem)]
         options.width = size.0
@@ -477,7 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     @objc private func openGitHub() { NSWorkspace.shared.open(URL(string: "https://github.com/drhelius/smac-gog-mac-launcher")!) }
     @objc private func about()
     {
-        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "SMAC Launcher", .applicationVersion: "0.1.0",
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "SMAC Launcher", .applicationVersion: BuildInfo.version,
             .applicationIcon: Interface.icon ?? NSImage(), .credits: NSAttributedString(string: "Nacho Sánchez · DrHelius")])
     }
 
@@ -509,6 +512,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-if CommandLine.arguments.contains("--render-ui") { app.appearance = NSAppearance(named: .aqua) }
-app.setActivationPolicy(CommandLine.arguments.contains("--render-ui") ? .prohibited : .regular)
+app.setActivationPolicy(.regular)
 app.run()

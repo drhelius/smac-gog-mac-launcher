@@ -4,12 +4,15 @@ import pathlib
 import shutil
 import subprocess
 import json
+import plistlib
 from build_movies import build as build_movies
+from git_version import git_version
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def main():
+    version = git_version()
     subprocess.run(["swift", "build", "-c", "release", "--arch", "arm64", "--arch", "x86_64"],
                    cwd=ROOT, check=True)
     binary_dir = pathlib.Path(subprocess.check_output(
@@ -23,7 +26,13 @@ def main():
     macos.mkdir(parents=True)
     resources.mkdir()
     shutil.copy2(binary_dir / "Centauri", macos / "SMACLauncher")
-    shutil.copy2(ROOT / "resources/Info.plist", app / "Contents/Info.plist")
+    with (ROOT / "resources/Info.plist").open("rb") as file:
+        info = plistlib.load(file)
+    info["CFBundleShortVersionString"] = version
+    info["CFBundleVersion"] = version
+    info["SMACBuildCommit"] = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    with (app / "Contents/Info.plist").open("wb") as file:
+        plistlib.dump(info, file, sort_keys=False)
     for name in ["LICENSE", "THIRD_PARTY.md"]:
         if (ROOT / name).exists():
             shutil.copy2(ROOT / name, resources / name)
