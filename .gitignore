@@ -4,6 +4,7 @@
 .local/
 build/
 dist/
+/docs/
 *.dmg
 *.zip
 *.tar.xz

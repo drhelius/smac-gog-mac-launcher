@@ -16,7 +16,7 @@ open "build/SMAC Launcher.app"
 
 `make app` builds a universal arm64/x86_64 app and `build/smac-launcher-cli`. The first build downloads verified FFmpeg source. Developer builds are ad-hoc signed. `LLVM_DLLTOOL` and `LLD` can override the corresponding tool paths.
 
-`make dist` builds and checks the application ZIP, matching FFmpeg source archive and checksums in `dist/`. It does not publish anything. See [Releasing](docs/RELEASING.md) for Developer ID signing and notarization.
+`make dist` builds and checks the application ZIP, matching FFmpeg source archive and checksums in `dist/`. It does not publish anything.
 
 ## Work on the launcher
 
@@ -31,4 +31,4 @@ build/smac-launcher-cli --help
 
 Keep game files, saves, runtime downloads, logs and signing credentials out of Git. `.local/`, `build/` and `dist/` are ignored. `make clean` removes build outputs and release archives; it keeps `.local/`.
 
-Follow the [manual checks](docs/TESTING.md) for changes affecting installation, display or movie playback. Bug reports should include the app version, macOS version, Mac model and steps to reproduce. Diagnostics are available in **File → Export Diagnostics**; review logs for personal information before attaching them.
+Bug reports should include the app version, macOS version, Mac model and steps to reproduce. Diagnostics are available in **File → Export Diagnostics**; review logs for personal information before attaching them.
