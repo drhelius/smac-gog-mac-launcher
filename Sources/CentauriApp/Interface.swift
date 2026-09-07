@@ -134,6 +134,9 @@ final class GameHero: NSView
         text.translatesAutoresizingMaskIntoConstraints = false
         addSubview(text)
         icon.image = Interface.icon
+        icon.wantsLayer = true
+        icon.layer?.cornerRadius = 26
+        icon.layer?.masksToBounds = true
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.translatesAutoresizingMaskIntoConstraints = false
         addSubview(icon)

@@ -12,3 +12,4 @@ GetModuleHandleA@4
 VirtualProtect@16
 FlushInstructionCache@12
 GetCurrentProcess@0
+GetEnvironmentVariableA@12

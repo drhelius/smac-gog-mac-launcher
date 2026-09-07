@@ -154,15 +154,29 @@ public final class CentauriService
         }
         // A custom drive letter can be reassigned by Wine's mounted-volume discovery.
         // Resolve the executable from our explicit working directory, as in the verified prototype.
-        var arguments = [program]
+        let arguments = [program]
+        var environment = runtime.environment(prefix: prefix)
+        if options.windowed && bridge == nil
+        {
+            throw CentauriError.message("Windowed mode requires the supported GOG executables.")
+        }
+        environment["SMAC_WINDOWED"] = options.windowed ? "1" : "0"
+        environment["SMAC_WINDOW_WIDTH"] = String(options.width)
+        environment["SMAC_WINDOW_HEIGHT"] = String(options.height)
         if options.windowed
         {
-            arguments = ["explorer", "/desktop=SMACLauncher,\(options.width)x\(options.height)"] + arguments
+            let key = "HKCU\\Software\\Wine\\AppDefaults\\\(program)\\Mac Driver"
+            for (name, value) in [("Decorated", "Y"), ("AllowImmovableWindows", "N"), ("CursorClippingLocksWindows", "N")]
+            {
+                let result = try Commands.run(runtime.wine, ["reg", "add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"],
+                    environment: environment, log: log, cancellation: cancellation, timeout: 30)
+                guard result == 0 else { throw CentauriError.message("Could not configure the game window.") }
+            }
         }
         progress("Running")
-        let status = try Commands.run(runtime.wine, arguments, environment: runtime.environment(prefix: prefix),
+        let status = try Commands.run(runtime.wine, arguments, environment: environment,
             directory: directory, log: log, cancellation: cancellation, timeout: 7 * 24 * 3600, tick: { try bridge?.tick() })
-        // explorer may exit before its child game. Retain our lock until the prefix has no clients.
+        // Retain our lock until Wine has no remaining clients for this game session.
         let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
         if GameExit.isNormal(status, knownGame: manifest.recognizedLegacyBuild, log: output)
         {

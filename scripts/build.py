@@ -3,6 +3,7 @@
 import pathlib
 import shutil
 import subprocess
+import json
 from build_movies import build as build_movies
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -27,7 +28,7 @@ def main():
         if (ROOT / name).exists():
             shutil.copy2(ROOT / name, resources / name)
     shutil.copy2(binary_dir / "centauri-cli", ROOT / "build/smac-launcher-cli")
-    artwork = ROOT / "resources/artwork/smac-launcher-icon.png"
+    artwork = ROOT / "resources/artwork/smac-launcher-square.png"
     shutil.copy2(artwork, resources / "AppIcon.png")
     iconset = ROOT / "build/AppIcon.iconset"
     if iconset.exists():
@@ -39,6 +40,22 @@ def main():
             subprocess.run(["sips", "-z", str(size * scale), str(size * scale), str(artwork),
                 "--out", str(iconset / f"icon_{size}x{size}{suffix}.png")], check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(resources / "AppIcon.icns")], check=True)
+    catalog = ROOT / "build/Icons.xcassets"
+    appicons = catalog / "AppIcon.appiconset"
+    if catalog.exists():
+        shutil.rmtree(catalog)
+    appicons.mkdir(parents=True)
+    entries = []
+    for size in [16, 32, 128, 256, 512]:
+        for scale in [1, 2]:
+            suffix = "@2x" if scale == 2 else ""
+            name = f"icon_{size}x{size}{suffix}.png"
+            shutil.copy2(iconset / name, appicons / name)
+            entries.append({"idiom": "mac", "size": f"{size}x{size}", "scale": f"{scale}x", "filename": name})
+    (appicons / "Contents.json").write_text(json.dumps({"images": entries, "info": {"author": "xcode", "version": 1}}))
+    subprocess.run(["xcrun", "actool", str(catalog), "--compile", str(resources), "--platform", "macosx",
+        "--minimum-deployment-target", "13.0", "--app-icon", "AppIcon", "--output-partial-info-plist",
+        str(ROOT / "build/icon-info.plist")], check=True)
     tools = build_movies(ROOT / "build/MovieTools")
     shutil.copy2(binary_dir / "centauri-movie-player", tools / "centauri-movie-player")
     # Linker byproducts are developer-only; the app needs only the DLL itself.

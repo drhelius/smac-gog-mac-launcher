@@ -131,10 +131,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         ])
         let brandIcon = NSImageView()
         brandIcon.image = Interface.icon
+        brandIcon.wantsLayer = true
+        brandIcon.layer?.cornerRadius = 9
+        brandIcon.layer?.masksToBounds = true
         brandIcon.imageScaling = .scaleProportionallyUpOrDown
         brandIcon.widthAnchor.constraint(equalToConstant: 40).isActive = true
         brandIcon.heightAnchor.constraint(equalToConstant: 40).isActive = true
-        let brandText = Interface.stack([Interface.label("SMAC Launcher", size: 16, weight: .semibold), Interface.label("DrHelius", size: 11, color: .secondaryLabelColor)], spacing: 3)
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        let brandText = Interface.stack([Interface.label("SMAC Launcher", size: 16, weight: .semibold), Interface.label(version, size: 11, color: .secondaryLabelColor)], spacing: 3)
         let brand = Interface.stack([brandIcon, brandText], vertical: false, spacing: 10)
         let gamesTitle = Interface.label("GAMES", size: 10, weight: .semibold, color: .secondaryLabelColor)
         let navigation = Interface.stack([brand, NSView(), gamesTitle], spacing: 14)
@@ -160,8 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         settingsButton.action = #selector(showSettings)
         let saved = Interface.button("Saved Games", symbol: "folder", target: self, action: #selector(openSaves))
         let files = Interface.button("Game Files", symbol: "folder.badge.gearshape", target: self, action: #selector(openGameFiles))
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
-        let bottom = Interface.stack([saved, files, settingsButton, Interface.label(version, size: 10, color: .tertiaryLabelColor)], spacing: 12)
+        let bottom = Interface.stack([saved, files, settingsButton, Interface.label("DrHelius", size: 10, color: .tertiaryLabelColor)], spacing: 12)
         bottom.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(bottom)
         NSLayoutConstraint.activate([

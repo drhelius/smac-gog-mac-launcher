@@ -11,6 +11,7 @@ allowed = {
     "SMAC Launcher.app/Contents/Info.plist",
     "SMAC Launcher.app/Contents/Resources/AppIcon.icns",
     "SMAC Launcher.app/Contents/Resources/AppIcon.png",
+    "SMAC Launcher.app/Contents/Resources/Assets.car",
     "SMAC Launcher.app/Contents/MacOS/SMACLauncher",
     "SMAC Launcher.app/Contents/Resources/LICENSE",
     "SMAC Launcher.app/Contents/Resources/THIRD_PARTY.md",

@@ -4,3 +4,15 @@ GetActiveWindow@0
 ShowWindow@8
 SetForegroundWindow@4
 InvalidateRect@12
+CreateWindowExA@48
+GetSystemMetrics@4
+GetCursorPos@4
+SetCursorPos@8
+ScreenToClient@8
+ClientToScreen@8
+AdjustWindowRectEx@16
+GetWindowLongA@8
+SetWindowLongA@12
+SetWindowPos@28
+DefWindowProcA@16
+CallWindowProcA@20

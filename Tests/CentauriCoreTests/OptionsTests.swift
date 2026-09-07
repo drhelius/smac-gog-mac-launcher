@@ -3,6 +3,16 @@ import XCTest
 
 final class OptionsTests: XCTestCase
 {
+    func testWindowedWidthRequiresRendererAlignment() throws
+    {
+        var options = PlayOptions()
+        options.windowed = true
+        options.width = 1366
+        XCTAssertThrowsError(try options.validate())
+        options.width = 1368
+        XCTAssertNoThrow(try options.validate())
+    }
+
     func testOldSettingsKeepDisplayChoiceAndReceiveSafeNewDefaults() throws
     {
         let old = Data(#"{"windowed":true,"width":1280,"height":800,"skipIntro":true}"#.utf8)

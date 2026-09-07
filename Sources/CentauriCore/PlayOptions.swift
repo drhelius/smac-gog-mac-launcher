@@ -70,6 +70,10 @@ public struct PlayOptions: Codable, Equatable
         {
             throw CentauriError.message("Window size must be between 800 × 600 and 3840 × 2160.")
         }
+        if windowed && width % 8 != 0
+        {
+            throw CentauriError.message("Window width must be divisible by 8.")
+        }
         guard [masterVolume, musicVolume, effectsVolume, voiceVolume].allSatisfy({ (0...127).contains($0) }),
               (0...100).contains(movieVolume), (50...200).contains(gamma),
               (8...32).contains(mainFontSize), (8...32).contains(interludeFontSize) else
