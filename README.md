@@ -22,7 +22,7 @@ The current Windows offline installer path is implemented but has not yet been t
 3. Optionally select an existing saves folder, then click **Install**.
 4. Choose a game and click **Play**. Fullscreen uses the desktop resolution; **Window** provides a movable window at the selected size.
 
-Opening movies are enabled by default and can be switched off on the main screen. For the verified legacy GOG executables, movies use a native Mac player with an Escape/Skip button. The launcher creates derived executable copies with a presentation hook; the original executables and WVE files remain intact. Videos are converted locally and cached when first played. The default profile disables EAX/3D audio and selects the older voxel renderer; regular sound remains enabled. Rules and AI are unchanged.
+Opening movies are enabled by default and can be switched off on the main screen. For the verified legacy GOG executables, movies use a native Mac player with an Escape/Skip button. The launcher creates derived executable copies with a presentation hook; the original executables and WVE files remain intact. Videos are converted locally and cached when first played. The default profile uses the standard renderer and disables EAX/3D audio; regular sound remains enabled. Rules and AI are unchanged.
 
 Native playback of the opening movie has been visually checked; integration and later movie categories are still being tested. It presents the movie's video and audio, without recreating additional text overlays drawn by the original movie renderer. Other executable versions do not yet have the native movie hook.
 

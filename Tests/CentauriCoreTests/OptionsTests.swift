@@ -20,7 +20,7 @@ final class OptionsTests: XCTestCase
         XCTAssertTrue(options.windowed)
         XCTAssertEqual(options.width, 1280)
         XCTAssertTrue(options.skipIntro)
-        XCTAssertTrue(options.legacyVoxel)
+        XCTAssertFalse(options.legacyVoxel)
         XCTAssertFalse(options.directDraw)
         XCTAssertFalse(options.positionalAudio)
         XCTAssertFalse(options.eaxAudio)
@@ -84,7 +84,7 @@ final class OptionsTests: XCTestCase
         XCTAssertFalse(imported.directDraw)
         XCTAssertFalse(imported.positionalAudio)
         XCTAssertFalse(imported.eaxAudio)
-        XCTAssertTrue(imported.legacyVoxel)
+        XCTAssertFalse(imported.legacyVoxel)
     }
 
     func testSettingsPersistBeforeInstallation() throws

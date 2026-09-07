@@ -21,7 +21,7 @@ public struct PlayOptions: Codable, Equatable
     public var interludeFontSize = 16
     public var gamma = 100
     public var animation: UnitAnimation = .standard
-    public var legacyVoxel = true
+    public var legacyVoxel = false
     public var directDraw = false
     public var positionalAudio = false
     public var eaxAudio = false

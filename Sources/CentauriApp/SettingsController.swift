@@ -55,7 +55,7 @@ final class SettingsController: NSObject
             [Interface.label("File dialogs"), checkbox("systemFileDialogs", "Use Windows file dialogs")]
         ])
         let renderer = checkbox("legacyVoxel", "Use legacy voxel renderer")
-        renderer.toolTip = "Uses the original voxel-rendering algorithm. Enabled by default."
+        renderer.toolTip = "Uses the legacy voxel-rendering algorithm. Disabled by default."
         let switching = checkbox("directDraw", "Allow display resolution switching")
         switching.toolTip = "Lets the game's DirectDraw code change display resolution. Disabled by default."
         let spatial = checkbox("positionalAudio", "Enable 3D positional audio")

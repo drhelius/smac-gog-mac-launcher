@@ -47,7 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         createMenu()
         createWindow()
         refresh()
-        status.stringValue = service.manifest == nil ? "Select game files to install" : "Ready"
+        status.stringValue = ""
+        status.isHidden = true
         if let index = CommandLine.arguments.firstIndex(of: "--render-ui"), CommandLine.arguments.indices.contains(index + 1)
         {
             DispatchQueue.main.async
@@ -110,10 +111,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     private func createWindow()
     {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 660),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "SMAC Launcher"
-        window.contentMinSize = NSSize(width: 900, height: 640)
+        window.contentMinSize = NSSize(width: 900, height: 700)
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -203,10 +204,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         openingMovie.target = self
         openingMovie.setAccessibilityLabel("Opening movie")
         openingMovie.action = #selector(changeOpeningMovie)
+        let advanced = Interface.button("Advanced Settings…", target: self, action: #selector(showSettings))
         displayGrid = NSGridView(views: [
             [Interface.label("Display"), display],
             [Interface.label("Window size"), resolution],
-            [Interface.label("Opening movie"), openingMovie]
+            [Interface.label("Opening movie"), openingMovie],
+            [NSView(), advanced]
         ])
         displayGrid.column(at: 0).width = 180
         displayGrid.columnSpacing = 20
@@ -217,18 +220,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         primary.bezelStyle = .rounded
         primary.controlSize = .large
         primary.bezelColor = .controlAccentColor
-        primary.font = .systemFont(ofSize: 15, weight: .semibold)
+        primary.font = .systemFont(ofSize: 17, weight: .semibold)
         primary.keyEquivalent = "\r"
         primary.target = self
         primary.action = #selector(primaryAction)
-        primary.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        primary.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        primary.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        primary.heightAnchor.constraint(equalToConstant: 52).isActive = true
         stopButton.title = "Stop"
         stopButton.bezelStyle = .rounded
         stopButton.target = self
         stopButton.action = #selector(stop)
-        let advanced = Interface.button("Advanced Settings…", target: self, action: #selector(showSettings))
-        let actions = Interface.stack([primary, stopButton, advanced], vertical: false, spacing: 14)
+        let actions = NSView()
+        primary.translatesAutoresizingMaskIntoConstraints = false
+        stopButton.translatesAutoresizingMaskIntoConstraints = false
+        actions.addSubview(primary)
+        actions.addSubview(stopButton)
+        NSLayoutConstraint.activate([
+            actions.heightAnchor.constraint(equalToConstant: 52),
+            primary.centerXAnchor.constraint(equalTo: actions.centerXAnchor),
+            primary.centerYAnchor.constraint(equalTo: actions.centerYAnchor),
+            stopButton.leadingAnchor.constraint(equalTo: primary.trailingAnchor, constant: 14),
+            stopButton.centerYAnchor.constraint(equalTo: actions.centerYAnchor)
+        ])
         progress.style = .spinning
         progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
@@ -243,6 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
             content.bottomAnchor.constraint(lessThanOrEqualTo: main.bottomAnchor, constant: -24)
         ])
         for view in [hero, setupCard!, settingsCard] { view.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true }
+        actions.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
     }
 
     private func refresh()
@@ -364,11 +378,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         self.playing = playing
         progress.startAnimation(nil)
         status.stringValue = playing ? "Starting…" : "Preparing…"
+        status.isHidden = false
         refresh()
         DispatchQueue.global(qos: .userInitiated).async
         {
             var failure: Error?
-            do { try work(cancellation) { message in DispatchQueue.main.async { self.status.stringValue = message } } }
+            do
+            {
+                try work(cancellation)
+                { message in
+                    DispatchQueue.main.async
+                    {
+                        self.status.stringValue = message == "Ready" ? "" : message
+                        self.status.isHidden = self.status.stringValue.isEmpty
+                    }
+                }
+            }
             catch { failure = error }
             DispatchQueue.main.async
             {
@@ -377,12 +402,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 self.options = self.service.options()
                 self.progress.stopAnimation(nil)
                 self.refresh()
+                self.status.stringValue = ""
+                self.status.isHidden = true
                 if let error = failure
                 {
-                    self.status.stringValue = cancellation.isCancelled ? "Stopped" : "Unable to complete operation"
                     if !cancellation.isCancelled { self.showError(error) }
                 }
-                else { self.status.stringValue = "Ready" }
                 if self.quitWhenFinished { NSApp.reply(toApplicationShouldTerminate: true) }
             }
         }
