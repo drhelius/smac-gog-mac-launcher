@@ -5,6 +5,8 @@
 build/
 dist/
 /docs/
+/scripts/setup-secrets.sh
+/scripts/validate_movies.py
 *.dmg
 *.zip
 *.tar.xz
