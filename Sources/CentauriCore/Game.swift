@@ -22,23 +22,6 @@ public struct GameManifest: Codable
     public let sourceKind: String
 }
 
-public struct PlayOptions: Codable, Equatable
-{
-    public var windowed: Bool = false
-    public var width: Int = 1024
-    public var height: Int = 768
-    public var skipIntro: Bool = true
-    public init() {}
-
-    public func validate() throws
-    {
-        guard (800...3840).contains(width), (600...2160).contains(height) else
-        {
-            throw CentauriError.message("Choose a resolution between 800×600 and 3840×2160.")
-        }
-    }
-}
-
 public enum GameSource
 {
     public static let legacyHashes = [
@@ -115,6 +98,22 @@ public enum GameSource
 
 public enum GameConfiguration
 {
+    public static func values(_ text: String) -> [String: String]
+    {
+        var result: [String: String] = [:]
+        var section = ""
+        for raw in text.components(separatedBy: .newlines)
+        {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") { section = String(line.dropFirst().dropLast()).lowercased() }
+            else if !line.hasPrefix(";"), let separator = line.firstIndex(of: "=")
+            {
+                let key = line[..<separator].trimmingCharacters(in: .whitespaces).lowercased()
+                result[section + "/" + key] = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return result
+    }
     // Preserve unrelated sections/settings and the legacy Windows text encoding.
     public static func setting(_ text: String, section: String, key: String, value: String) -> String
     {
@@ -164,11 +163,21 @@ public enum GameConfiguration
         {
             throw CentauriError.message("Cannot read the game configuration.")
         }
-        let intro = setting(text, section: "Alpha Centauri", key: "DisableOpeningMovie", value: options.skipIntro ? "1" : "0")
-        let display = setting(intro, section: "Alpha Centauri", key: "DirectDraw", value: "0")
-        let sound3D = setting(display, section: "Alpha Centauri", key: "ds3d", value: "0")
-        let eax = setting(sound3D, section: "Alpha Centauri", key: "eax", value: "0")
-        let updated = setting(eax, section: "PREFERENCES", key: "ForceOldVoxelAlgorithm", value: "1")
+        let fields: [(String, Int)] = [
+            ("DisableOpeningMovie", options.skipIntro || !options.moviesEnabled ? 1 : 0),
+            ("DirectDraw", options.directDraw ? 1 : 0), ("ds3d", options.positionalAudio ? 1 : 0),
+            ("eax", options.eaxAudio ? 1 : 0), ("Main Volume", options.masterVolume),
+            ("Music Volume", options.musicVolume), ("SFX Volume", options.effectsVolume),
+            ("Voice Volume", options.voiceVolume), ("MainFontSize", options.mainFontSize),
+            ("InterludeFontSize", options.interludeFontSize), ("Gamma Correction", options.gamma),
+            ("FastUnitAnim", options.animation == .fast ? 1 : 0),
+            ("SmoothUnitAnim", options.animation == .smooth ? 1 : 0),
+            ("WindowsFileBox", options.systemFileDialogs ? 1 : 0),
+            ("DontResetBeginnerPrefs", options.preserveBeginnerPreferences ? 1 : 0)
+        ]
+        var updated = text
+        for (key, value) in fields { updated = setting(updated, section: "Alpha Centauri", key: key, value: String(value)) }
+        updated = setting(updated, section: "PREFERENCES", key: "ForceOldVoxelAlgorithm", value: options.legacyVoxel ? "1" : "0")
         guard let data = updated.data(using: .isoLatin1) else { throw CentauriError.message("Cannot encode the game configuration.") }
         if !original.isEmpty
         {

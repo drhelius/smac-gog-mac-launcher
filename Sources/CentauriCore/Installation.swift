@@ -19,7 +19,7 @@ public final class CentauriService
         try recoverInterruptedCommit()
         guard manifest == nil else
         {
-            throw CentauriError.message("A game is already installed. Your saves are safe. Use a separate data directory for development experiments.")
+            throw CentauriError.message("A game is already installed.")
         }
         let setup = source.pathExtension.lowercased() == "exe"
         let directSource: URL?
@@ -95,14 +95,17 @@ public final class CentauriService
             executableHashes: hashes, recognizedLegacyBuild: hashes == GameSource.legacyHashes,
             skippedLinks: skipped, sourceKind: setup ? "gog-windows-installer" : "game-directory")
         try Files.writeJSON(receipt, to: stage.appendingPathComponent("manifest.json"))
-        try Files.writeJSON(PlayOptions(), to: stage.appendingPathComponent("options.json"))
+        let initialOptions = ((try? Files.readJSON(PlayOptions.self, from: layout.root.appendingPathComponent("preferences.json")))
+            ?? PlayOptions().readingGameSettings(game, includeCompatibility: false))
+        try GameConfiguration.apply(initialOptions, gameDirectory: game)
+        try Files.writeJSON(initialOptions, to: stage.appendingPathComponent("options.json"))
         try cancellation.check()
         runtime.stop(prefix: prefix, log: log)
         try commit(stage: stage)
-        progress("Installed. Choose a game and click Play.")
+        progress("Ready")
     }
 
-    public func play(_ game: Game, options: PlayOptions, cancellation: Cancellation, progress: ProgressHandler) throws
+    public func play(_ game: Game, options: PlayOptions, cancellation: Cancellation, progress: @escaping ProgressHandler) throws
     {
         try layout.prepare()
         let lock = try InstallationLock(root: layout.root)
@@ -129,38 +132,101 @@ public final class CentauriService
         try Files.requireRealDirectory(prefix)
         let log = freshLog("game.log")
         defer { runtime.stop(prefix: prefix, log: log) }
+        var bridge: MovieBridge?
+        var program = game.rawValue
+        if let tools = MovieTools.discover(), manifest.recognizedLegacyBuild
+        {
+            program = "centauri-" + game.rawValue
+            try MoviePatch.executable(original: executable, game: game, destination: directory.appendingPathComponent(program))
+            let hook = directory.appendingPathComponent("centauri_movies.dll")
+            if FileManager.default.fileExists(atPath: hook.path) || Files.isLink(hook)
+            {
+                try FileManager.default.removeItem(at: hook)
+            }
+            try FileManager.default.copyItem(at: tools.hook, to: hook)
+            bridge = try MovieBridge(game: directory, cache: layout.installation.appendingPathComponent("MovieCache"),
+                tools: tools, log: layout.logs.appendingPathComponent("movies.log"), token: cancellation,
+                enabled: options.moviesEnabled, volume: options.movieVolume * options.masterVolume / 127, progress: progress)
+        }
+        else if !options.skipIntro && options.moviesEnabled
+        {
+            throw CentauriError.message("Native movie support is unavailable for this build or game version. Keep Skip opening movie enabled.")
+        }
         // A custom drive letter can be reassigned by Wine's mounted-volume discovery.
         // Resolve the executable from our explicit working directory, as in the verified prototype.
-        var arguments = [game.rawValue]
+        var arguments = [program]
         if options.windowed
         {
-            arguments = ["explorer", "/desktop=Centauri,\(options.width)x\(options.height)"] + arguments
+            arguments = ["explorer", "/desktop=SMACLauncher,\(options.width)x\(options.height)"] + arguments
         }
-        progress("\(game.title) is running. Save your game before closing it.")
+        progress("Running")
         let status = try Commands.run(runtime.wine, arguments, environment: runtime.environment(prefix: prefix),
-            directory: directory, log: log, cancellation: cancellation, timeout: 7 * 24 * 3600)
+            directory: directory, log: log, cancellation: cancellation, timeout: 7 * 24 * 3600, tick: { try bridge?.tick() })
         // explorer may exit before its child game. Retain our lock until the prefix has no clients.
-        if status == 0
+        let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        if GameExit.isNormal(status, knownGame: manifest.recognizedLegacyBuild, log: output)
         {
             _ = try Commands.run(runtime.server, ["-w"], environment: runtime.environment(prefix: prefix),
-                log: log, cancellation: cancellation, timeout: 7 * 24 * 3600)
+                log: log, cancellation: cancellation, timeout: 7 * 24 * 3600, tick: { try bridge?.tick() })
         }
-        guard status == 0 else { throw CentauriError.message("The game exited with code \(status). Export diagnostics to investigate.") }
-        progress("Game closed.")
+        let finalOutput = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        guard GameExit.isNormal(status, knownGame: manifest.recognizedLegacyBuild, log: finalOutput) else
+        {
+            throw CentauriError.message("The game stopped unexpectedly (exit code \(status)). Export diagnostics to investigate.")
+        }
+        progress("Ready")
     }
 
     public func options() -> PlayOptions
     {
-        (try? Files.readJSON(PlayOptions.self, from: layout.installation.appendingPathComponent("options.json"))) ?? PlayOptions()
+        if manifest != nil
+        {
+            let options = (try? Files.readJSON(PlayOptions.self, from: layout.installation.appendingPathComponent("options.json"))) ?? PlayOptions()
+            return options.readingGameSettings(layout.installation.appendingPathComponent("game"))
+        }
+        return (try? Files.readJSON(PlayOptions.self, from: layout.root.appendingPathComponent("preferences.json"))) ?? PlayOptions()
+    }
+
+    public func saveOptions(_ options: PlayOptions) throws
+    {
+        try options.validate()
+        try layout.prepare()
+        let lock = try InstallationLock(root: layout.root)
+        defer { withExtendedLifetime(lock) {} }
+        if manifest != nil
+        {
+            try GameConfiguration.apply(options, gameDirectory: layout.installation.appendingPathComponent("game"))
+            try Files.writeJSON(options, to: layout.installation.appendingPathComponent("options.json"))
+        }
+        else { try Files.writeJSON(options, to: layout.root.appendingPathComponent("preferences.json")) }
+    }
+
+    public func configureWine(cancellation: Cancellation, progress: ProgressHandler) throws
+    {
+        try layout.prepare()
+        let lock = try InstallationLock(root: layout.root)
+        defer { withExtendedLifetime(lock) {} }
+        guard manifest != nil, let runtime = RuntimeInstaller.installed(layout: layout) else
+        {
+            throw CentauriError.message("Install the game first.")
+        }
+        let prefix = layout.installation.appendingPathComponent("prefix")
+        let log = freshLog("wine-settings.log")
+        defer { runtime.stop(prefix: prefix, log: log) }
+        progress("Wine settings")
+        let status = try Commands.run(runtime.wine, ["winecfg"], environment: runtime.environment(prefix: prefix),
+            log: log, cancellation: cancellation, timeout: 3600)
+        guard status == 0 else { throw CentauriError.message("Wine settings closed with code \(status).") }
+        progress("Ready")
     }
 
     public func exportDiagnostics(to destination: URL) throws
     {
-        let directory = destination.appendingPathComponent("Centauri-Diagnostics-" + UUID().uuidString)
+        let directory = destination.appendingPathComponent("SMAC-Launcher-Diagnostics-" + UUID().uuidString)
         try Files.makeDirectory(directory)
-        let report = "Centauri 0.1.0 development preview\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nRuntime: \(RuntimeDescriptor.pinned.id)\nInstalled: \(manifest != nil)\nKnown legacy executables: \(manifest?.recognizedLegacyBuild == true)\nGameplay acceptance: pending\n"
+        let report = "SMAC Launcher 0.1.0\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nRuntime: \(RuntimeDescriptor.pinned.id)\nInstalled: \(manifest != nil)\nKnown legacy executables: \(manifest?.recognizedLegacyBuild == true)\n"
         try report.write(to: directory.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
-        for name in ["install.log", "game.log", "runtime.log", "runtime-check.log"]
+        for name in ["install.log", "game.log", "runtime.log", "runtime-check.log", "movies.log"]
         {
             let input = layout.logs.appendingPathComponent(name)
             guard Files.isRegular(input) else { continue }

@@ -4,14 +4,20 @@ import pathlib
 import zipfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
-archives = list((root / "dist").glob("Centauri-*-macOS.zip"))
+archives = list((root / "dist").glob("SMAC-Launcher-*-macOS.zip"))
 if not archives:
     raise SystemExit("No release archive found.")
 allowed = {
-    "Centauri.app/Contents/Info.plist",
-    "Centauri.app/Contents/MacOS/Centauri",
-    "Centauri.app/Contents/Resources/LICENSE",
-    "Centauri.app/Contents/Resources/THIRD_PARTY.md",
+    "SMAC Launcher.app/Contents/Info.plist",
+    "SMAC Launcher.app/Contents/Resources/AppIcon.icns",
+    "SMAC Launcher.app/Contents/Resources/AppIcon.png",
+    "SMAC Launcher.app/Contents/MacOS/SMACLauncher",
+    "SMAC Launcher.app/Contents/Resources/LICENSE",
+    "SMAC Launcher.app/Contents/Resources/THIRD_PARTY.md",
+    "SMAC Launcher.app/Contents/Resources/MovieTools/centauri-convert",
+    "SMAC Launcher.app/Contents/Resources/MovieTools/centauri-movie-player",
+    "SMAC Launcher.app/Contents/Resources/MovieTools/centauri_movies.dll",
+    "SMAC Launcher.app/Contents/Resources/MovieTools/FFmpeg-LICENSE.txt",
 }
 for archive in archives:
     with zipfile.ZipFile(archive) as file:
@@ -21,8 +27,8 @@ for archive in archives:
                 raise SystemExit(f"Unsafe archive member: {name}")
             if item.is_dir() or name.startswith("__MACOSX/"):
                 continue
-            if name not in allowed and not name.startswith("Centauri.app/Contents/_CodeSignature/"):
+            if name not in allowed and not name.startswith("SMAC Launcher.app/Contents/_CodeSignature/"):
                 raise SystemExit(f"Unexpected release payload: {name}")
-        if not {"Centauri.app/Contents/Info.plist", "Centauri.app/Contents/MacOS/Centauri"}.issubset(file.namelist()):
+        if not {"SMAC Launcher.app/Contents/Info.plist", "SMAC Launcher.app/Contents/MacOS/SMACLauncher"}.issubset(file.namelist()):
             raise SystemExit("Missing app files.")
     print(f"Verified explicit game-free payload: {archive.name}")

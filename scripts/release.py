@@ -9,7 +9,7 @@ import plistlib
 import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-APP = ROOT / "build/Centauri.app"
+APP = ROOT / "build/SMAC Launcher.app"
 DIST = ROOT / "dist"
 
 
@@ -24,13 +24,16 @@ def version():
 
 def package():
     DIST.mkdir(exist_ok=True)
-    archive = DIST / f"Centauri-{version()}-macOS.zip"
+    archive = DIST / f"SMAC-Launcher-{version()}-macOS.zip"
     if archive.exists():
         archive.unlink()
     # App is assembled from explicit inputs; no game, prefix, credential or test artifact is packaged.
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", APP, archive)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (DIST / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")
+    for source in sorted(DIST.glob("ffmpeg-*.tar.xz")):
+        with (DIST / "SHA256SUMS").open("a") as file:
+            file.write(f"{hashlib.sha256(source.read_bytes()).hexdigest()}  {source.name}\n")
     print(archive)
 
 
@@ -38,6 +41,10 @@ def sign():
     identity = os.environ.get("MACOS_CERTIFICATE_NAME")
     if not identity:
         raise SystemExit("Set MACOS_CERTIFICATE_NAME to your Developer ID Application identity.")
+    for name in ["centauri-convert", "centauri-movie-player"]:
+        helper = APP / "Contents/Resources/MovieTools" / name
+        if helper.exists():
+            run("codesign", "--force", "--timestamp", "--options", "runtime", "--sign", identity, helper)
     run("codesign", "--force", "--timestamp", "--options", "runtime", "--sign", identity, APP)
     run("codesign", "--verify", "--deep", "--strict", "--verbose=2", APP)
 
@@ -45,7 +52,7 @@ def sign():
 def notarize():
     profile = os.environ.get("NOTARY_PROFILE", "centauri-notary")
     DIST.mkdir(exist_ok=True)
-    submission = DIST / "Centauri-notarization.zip"
+    submission = DIST / "SMAC-Launcher-notarization.zip"
     if submission.exists():
         submission.unlink()
     run("codesign", "--verify", "--deep", "--strict", APP)

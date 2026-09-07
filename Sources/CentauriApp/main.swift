@@ -5,27 +5,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 {
     private let service: CentauriService =
     {
-        // Development/acceptance runs can use an isolated root without changing the normal user location.
-        let arguments = CommandLine.arguments
-        if let index = arguments.firstIndex(of: "--data-dir"), arguments.indices.contains(index + 1)
+        let args = CommandLine.arguments
+        if let index = args.firstIndex(of: "--data-dir"), args.indices.contains(index + 1)
         {
-            return CentauriService(layout: Layout(root: URL(fileURLWithPath: arguments[index + 1], isDirectory: true)))
+            return CentauriService(layout: Layout(root: URL(fileURLWithPath: args[index + 1], isDirectory: true)))
         }
         return CentauriService()
     }()
     private var window: NSWindow!
-    private let sourceField = NSTextField(labelWithString: "Choose your GOG game…")
-    private let status = NSTextField(wrappingLabelWithString: "")
+    private var settingsController: SettingsController?
+    private var options = PlayOptions()
+    private var selectedGame: Game = .alphaCentauri
+    private var gameButtons: [GameButton] = []
+    private let hero = GameHero(frame: .zero)
+    private let status = Interface.label("", size: 12, color: .secondaryLabelColor)
     private let progress = NSProgressIndicator()
-    private let installButton = NSButton(title: "Install Game", target: nil, action: nil)
-    private let sourceButton = NSButton(title: "Choose…", target: nil, action: nil)
-    private let saveImportButton = NSButton(title: "Import Existing Saves…", target: nil, action: nil)
-    private let playButton = NSButton(title: "Play", target: nil, action: nil)
-    private let stopButton = NSButton(title: "Stop", target: nil, action: nil)
-    private let gameMenu = NSPopUpButton()
-    private let displayMenu = NSPopUpButton()
-    private let resolutionMenu = NSPopUpButton()
-    private let skipIntro = NSButton(checkboxWithTitle: "Skip opening movie", target: nil, action: nil)
+    private let sourceField = Interface.label("", size: 12, color: .secondaryLabelColor)
+    private let primary = NSButton()
+    private let stopButton = NSButton()
+    private let sourceButton = NSButton()
+    private let saveImportButton = NSButton()
+    private let settingsButton = NSButton()
+    private let display = NSSegmentedControl(labels: ["Fullscreen", "Window"], trackingMode: .selectOne, target: nil, action: nil)
+    private let resolution = NSPopUpButton()
+    private let openingMovie = NSSwitch()
+    private var setupCard: NSView!
+    private var displayGrid: NSGridView!
     private var source: URL?
     private var saves: URL?
     private var token: Cancellation?
@@ -34,153 +39,280 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification)
     {
+        options = service.options()
+        let index = UserDefaults.standard.integer(forKey: "selectedGame")
+        selectedGame = Game.allCases.indices.contains(index) ? Game.allCases[index] : .alphaCentauri
+        let candidate = URL(fileURLWithPath: "/Applications/Sid Meier's Alpha Centauri Planetary Pack.app")
+        if FileManager.default.fileExists(atPath: candidate.path) { source = candidate }
         createMenu()
         createWindow()
-        let candidate = URL(fileURLWithPath: "/Applications/Sid Meier's Alpha Centauri Planetary Pack.app")
-        if FileManager.default.fileExists(atPath: candidate.path)
+        refresh()
+        status.stringValue = service.manifest == nil ? "Select game files to install" : "Ready"
+        if let index = CommandLine.arguments.firstIndex(of: "--render-ui"), CommandLine.arguments.indices.contains(index + 1)
         {
-            source = candidate
-            sourceField.stringValue = candidate.lastPathComponent
+            DispatchQueue.main.async
+            {
+                self.window.contentView?.layoutSubtreeIfNeeded()
+                self.render(self.window.contentView!, to: CommandLine.arguments[index + 1])
+                if let settingsIndex = CommandLine.arguments.firstIndex(of: "--render-settings"), CommandLine.arguments.indices.contains(settingsIndex + 1)
+                {
+                    self.showSettings()
+                    self.settingsController?.render(to: CommandLine.arguments[settingsIndex + 1])
+                }
+                exit(0)
+            }
         }
-        let settings = service.options()
-        displayMenu.selectItem(at: settings.windowed ? 0 : 1)
-        skipIntro.state = settings.skipIntro ? .on : .off
-        if let item = resolutionMenu.itemArray.first(where: { $0.representedObject as? String == "\(settings.width)x\(settings.height)" })
+        else
         {
-            resolutionMenu.select(item)
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
         }
-        updateControls()
-        status.stringValue = service.manifest == nil
-            ? "Import your purchased GOG game. First setup downloads the compatibility runtime (about 342 MB); later play works offline."
-            : "Ready to play. Your original GOG application is unchanged."
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func render(_ view: NSView, to path: String)
+    {
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.effectiveAppearance.performAsCurrentDrawingAppearance { view.cacheDisplay(in: view.bounds, to: bitmap) }
+        try? bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
     }
 
     private func createMenu()
     {
         let menu = NSMenu()
         let appItem = NSMenuItem()
-        menu.addItem(appItem)
         let app = NSMenu()
-        app.addItem(withTitle: "About Centauri", action: #selector(about), keyEquivalent: "")
+        app.addItem(withTitle: "About SMAC Launcher", action: #selector(about), keyEquivalent: "")
         app.addItem(.separator())
-        app.addItem(withTitle: "Quit Centauri", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        app.addItem(.separator())
+        app.addItem(withTitle: "Quit SMAC Launcher", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = app
+        menu.addItem(appItem)
+        let fileItem = NSMenuItem()
+        let file = NSMenu(title: "File")
+        file.addItem(withTitle: "Open Saved Games", action: #selector(openSaves), keyEquivalent: "")
+        file.addItem(withTitle: "Open Game Files", action: #selector(openGameFiles), keyEquivalent: "")
+        file.addItem(withTitle: "Open Configuration", action: #selector(openConfiguration), keyEquivalent: "")
+        file.addItem(.separator())
+        file.addItem(withTitle: "Export Diagnostics…", action: #selector(exportDiagnostics), keyEquivalent: "")
+        fileItem.submenu = file
+        menu.addItem(fileItem)
         let helpItem = NSMenuItem()
-        menu.addItem(helpItem)
         let help = NSMenu(title: "Help")
-        help.addItem(withTitle: "Open Saves", action: #selector(openSaves), keyEquivalent: "")
-        help.addItem(withTitle: "Open Data Folder", action: #selector(openData), keyEquivalent: "")
-        help.addItem(withTitle: "Export Diagnostics…", action: #selector(exportDiagnostics), keyEquivalent: "")
+        help.addItem(withTitle: "SMAC Launcher on GitHub", action: #selector(openGitHub), keyEquivalent: "")
+        help.addItem(withTitle: "GOG Planetary Pack", action: #selector(openGOG), keyEquivalent: "")
         help.addItem(.separator())
         help.addItem(withTitle: "Install Rosetta…", action: #selector(installRosetta), keyEquivalent: "")
-        help.addItem(withTitle: "GOG Download Page", action: #selector(openGOG), keyEquivalent: "")
         helpItem.submenu = help
+        menu.addItem(helpItem)
         NSApp.mainMenu = menu
     }
 
     private func createWindow()
     {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 630, height: 570),
-                          styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Centauri"
-        window.center()
-        window.delegate = self
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 660),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.title = "SMAC Launcher"
+        window.contentMinSize = NSSize(width: 900, height: 640)
+        window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        let content = NSStackView()
-        content.orientation = .vertical
-        content.alignment = .leading
-        content.spacing = 18
-        content.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView!.addSubview(content)
+        window.delegate = self
+        window.center()
+        let root = window.contentView!
+        let sidebar = NSVisualEffectView()
+        sidebar.material = .sidebar
+        sidebar.blendingMode = .behindWindow
+        sidebar.state = .active
+        sidebar.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(sidebar)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 28),
-            content.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -28),
-            content.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 28)
+            sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor), sidebar.topAnchor.constraint(equalTo: root.topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: root.bottomAnchor), sidebar.widthAnchor.constraint(equalToConstant: 230)
         ])
-        let title = NSTextField(labelWithString: "Centauri")
-        title.font = .systemFont(ofSize: 32, weight: .bold)
-        content.addArrangedSubview(title)
-        let subtitle = NSTextField(labelWithString: "Alpha Centauri and Alien Crossfire for your Mac")
-        subtitle.textColor = .secondaryLabelColor
-        content.addArrangedSubview(subtitle)
-        content.addArrangedSubview(separator())
+        let brandIcon = NSImageView()
+        brandIcon.image = Interface.icon
+        brandIcon.imageScaling = .scaleProportionallyUpOrDown
+        brandIcon.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        brandIcon.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        let brandText = Interface.stack([Interface.label("SMAC Launcher", size: 16, weight: .semibold), Interface.label("DrHelius", size: 11, color: .secondaryLabelColor)], spacing: 3)
+        let brand = Interface.stack([brandIcon, brandText], vertical: false, spacing: 10)
+        let gamesTitle = Interface.label("GAMES", size: 10, weight: .semibold, color: .secondaryLabelColor)
+        let navigation = Interface.stack([brand, NSView(), gamesTitle], spacing: 14)
+        for game in Game.allCases
+        {
+            let button = GameButton(game: game, target: self, action: #selector(selectGame(_:)))
+            gameButtons.append(button)
+            navigation.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: 198).isActive = true
+        }
+        navigation.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.addSubview(navigation)
+        NSLayoutConstraint.activate([
+            navigation.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 28),
+            navigation.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 16),
+            navigation.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -16)
+        ])
+        settingsButton.title = "Settings"
+        settingsButton.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
+        settingsButton.imagePosition = .imageLeading
+        settingsButton.bezelStyle = .rounded
+        settingsButton.target = self
+        settingsButton.action = #selector(showSettings)
+        let saved = Interface.button("Saved Games", symbol: "folder", target: self, action: #selector(openSaves))
+        let files = Interface.button("Game Files", symbol: "folder.badge.gearshape", target: self, action: #selector(openGameFiles))
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+        let bottom = Interface.stack([saved, files, settingsButton, Interface.label(version, size: 10, color: .tertiaryLabelColor)], spacing: 12)
+        bottom.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.addSubview(bottom)
+        NSLayoutConstraint.activate([
+            bottom.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 24),
+            bottom.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor, constant: -24)
+        ])
 
-        let sourceTitle = NSTextField(labelWithString: "Your GOG game")
-        sourceTitle.font = .systemFont(ofSize: 13, weight: .semibold)
-        content.addArrangedSubview(sourceTitle)
+        let main = CanvasView()
+        main.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(main)
+        NSLayoutConstraint.activate([
+            main.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor), main.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            main.topAnchor.constraint(equalTo: root.topAnchor), main.bottomAnchor.constraint(equalTo: root.bottomAnchor)
+        ])
         sourceField.lineBreakMode = .byTruncatingMiddle
-        sourceField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        sourceButton.title = "Choose…"
+        sourceButton.bezelStyle = .rounded
         sourceButton.target = self
         sourceButton.action = #selector(chooseSource)
-        content.addArrangedSubview(row([sourceField, sourceButton]))
-        installButton.bezelStyle = .rounded
-        installButton.target = self
-        installButton.action = #selector(install)
+        saveImportButton.title = "Import Saves…"
         saveImportButton.bezelStyle = .rounded
         saveImportButton.target = self
         saveImportButton.action = #selector(chooseSaves)
-        content.addArrangedSubview(row([installButton, saveImportButton]))
-        content.addArrangedSubview(separator())
-
-        gameMenu.addItems(withTitles: Game.allCases.map(\.title))
-        displayMenu.addItems(withTitles: ["Window", "Fullscreen"])
-        displayMenu.target = self
-        displayMenu.action = #selector(displayChanged)
-        var resolutions = [(1024, 768), (1280, 800), (1600, 900), (1920, 1080)]
-        if let screen = NSScreen.main
-        {
-            let size = (Int(screen.frame.width), Int(screen.frame.height))
-            if size.0 >= 800 && size.1 >= 600 && !resolutions.contains(where: { $0 == size }) { resolutions.append(size) }
-        }
-        for (width, height) in resolutions
-        {
-            resolutionMenu.addItem(withTitle: "\(width) × \(height)")
-            resolutionMenu.lastItem?.representedObject = "\(width)x\(height)"
-        }
-        content.addArrangedSubview(row([NSTextField(labelWithString: "Game"), gameMenu]))
-        content.addArrangedSubview(row([NSTextField(labelWithString: "Display"), displayMenu, resolutionMenu]))
-        content.addArrangedSubview(skipIntro)
-
-        playButton.bezelStyle = .rounded
-        playButton.keyEquivalent = "\r"
-        playButton.target = self
-        playButton.action = #selector(play)
+        setupCard = Interface.card(Interface.stack([
+            Interface.label("Game Files", size: 13, weight: .semibold),
+            Interface.stack([sourceField, sourceButton, saveImportButton], vertical: false)
+        ]))
+        display.target = self
+        display.setAccessibilityLabel("Display mode")
+        display.action = #selector(changeDisplay)
+        display.widthAnchor.constraint(equalToConstant: 225).isActive = true
+        for size in ["1024 × 768", "1280 × 800", "1600 × 900", "1920 × 1080", "Custom…"] { resolution.addItem(withTitle: size) }
+        resolution.target = self
+        resolution.setAccessibilityLabel("Window size")
+        resolution.action = #selector(changeResolution)
+        openingMovie.target = self
+        openingMovie.setAccessibilityLabel("Opening movie")
+        openingMovie.action = #selector(changeOpeningMovie)
+        displayGrid = NSGridView(views: [
+            [Interface.label("Display"), display],
+            [Interface.label("Window size"), resolution],
+            [Interface.label("Opening movie"), openingMovie]
+        ])
+        displayGrid.column(at: 0).width = 180
+        displayGrid.columnSpacing = 20
+        displayGrid.rowSpacing = 16
+        displayGrid.xPlacement = .leading
+        displayGrid.yPlacement = .center
+        let settingsCard = Interface.card(displayGrid)
+        primary.bezelStyle = .rounded
+        primary.controlSize = .large
+        primary.bezelColor = .controlAccentColor
+        primary.font = .systemFont(ofSize: 15, weight: .semibold)
+        primary.keyEquivalent = "\r"
+        primary.target = self
+        primary.action = #selector(primaryAction)
+        primary.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        primary.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        stopButton.title = "Stop"
         stopButton.bezelStyle = .rounded
         stopButton.target = self
         stopButton.action = #selector(stop)
+        let advanced = Interface.button("Advanced Settings…", target: self, action: #selector(showSettings))
+        let actions = Interface.stack([primary, stopButton, advanced], vertical: false, spacing: 14)
         progress.style = .spinning
         progress.controlSize = .small
         progress.isDisplayedWhenStopped = false
-        let savesButton = NSButton(title: "Open Saves", target: self, action: #selector(openSaves))
-        savesButton.bezelStyle = .rounded
-        content.addArrangedSubview(row([playButton, stopButton, progress, savesButton]))
-        status.font = .systemFont(ofSize: 12)
-        status.textColor = .secondaryLabelColor
-        status.preferredMaxLayoutWidth = 570
-        content.addArrangedSubview(status)
-        let preview = NSTextField(labelWithString: "Development preview · Gameplay validation in progress")
-        preview.font = .systemFont(ofSize: 10)
-        preview.textColor = .tertiaryLabelColor
-        content.addArrangedSubview(preview)
+        let feedback = Interface.stack([progress, status], vertical: false, spacing: 8)
+        let content = Interface.stack([hero, setupCard, settingsCard, actions, feedback], spacing: 22)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        main.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: main.leadingAnchor, constant: 28),
+            content.trailingAnchor.constraint(equalTo: main.trailingAnchor, constant: -28),
+            content.topAnchor.constraint(equalTo: main.topAnchor, constant: 28),
+            content.bottomAnchor.constraint(lessThanOrEqualTo: main.bottomAnchor, constant: -24)
+        ])
+        for view in [hero, setupCard!, settingsCard] { view.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true }
     }
 
-    private func row(_ views: [NSView]) -> NSStackView
+    private func refresh()
     {
-        let stack = NSStackView(views: views)
-        stack.orientation = .horizontal
-        stack.spacing = 10
-        stack.alignment = .centerY
-        return stack
+        let installed = service.manifest != nil
+        let busy = token != nil
+        hero.select(selectedGame)
+        for button in gameButtons
+        {
+            button.state = button.game == selectedGame ? .on : .off
+            button.isEnabled = !busy
+            button.needsDisplay = true
+        }
+        setupCard.isHidden = installed
+        sourceField.stringValue = source?.lastPathComponent ?? "GOG application, game folder or installer"
+        primary.title = installed ? "Play" : "Install"
+        primary.isEnabled = !busy && (installed || source != nil)
+        stopButton.isHidden = !busy
+        stopButton.title = playing ? "Stop Game" : "Cancel"
+        sourceButton.isEnabled = !busy
+        saveImportButton.isEnabled = !busy
+        settingsButton.isEnabled = !busy
+        display.isEnabled = !busy
+        resolution.isEnabled = !busy
+        openingMovie.isEnabled = !busy && options.moviesEnabled
+        display.selectedSegment = options.windowed ? 1 : 0
+        displayGrid.row(at: 1).isHidden = !options.windowed
+        openingMovie.state = options.skipIntro ? .off : .on
+        let size = "\(options.width) × \(options.height)"
+        if resolution.itemTitles.contains(size) { resolution.selectItem(withTitle: size) }
+        else { resolution.selectItem(withTitle: "Custom…") }
     }
 
-    private func separator() -> NSBox
+    @objc private func selectGame(_ button: GameButton)
     {
-        let box = NSBox()
-        box.boxType = .separator
-        box.widthAnchor.constraint(equalToConstant: 574).isActive = true
-        return box
+        selectedGame = button.game
+        UserDefaults.standard.set(Game.allCases.firstIndex(of: selectedGame) ?? 0, forKey: "selectedGame")
+        refresh()
+    }
+
+    private func saveSettings()
+    {
+        do { try service.saveOptions(options) }
+        catch { options = service.options(); showError(error) }
+        refresh()
+    }
+
+    @objc private func changeDisplay() { options.windowed = display.selectedSegment == 1; saveSettings() }
+    @objc private func changeOpeningMovie() { options.skipIntro = openingMovie.state != .on; saveSettings() }
+    @objc private func changeResolution()
+    {
+        if resolution.indexOfSelectedItem == 4 { showSettings(); return }
+        let sizes = [(1024, 768), (1280, 800), (1600, 900), (1920, 1080)]
+        let size = sizes[max(0, resolution.indexOfSelectedItem)]
+        options.width = size.0
+        options.height = size.1
+        saveSettings()
+    }
+
+    @objc private func showSettings()
+    {
+        guard token == nil, window.attachedSheet == nil else { return }
+        options = service.options()
+        settingsController = SettingsController(options: options, save:
+        { settings in
+            try self.service.saveOptions(settings)
+            self.options = settings
+            self.refresh()
+        }, wine:
+        {
+            self.perform(playing: false) { token, progress in try self.service.configureWine(cancellation: token, progress: progress) }
+        })
+        settingsController?.show(on: window, installed: service.manifest != nil)
     }
 
     @objc private func chooseSource()
@@ -189,13 +321,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
         panel.treatsFilePackagesAsDirectories = false
-        panel.message = "Choose your old GOG Mac app, game folder, or Windows offline setup .exe. Keep all installer .bin files in the same folder."
-        if panel.runModal() == .OK, let url = panel.url
-        {
-            source = url
-            sourceField.stringValue = url.lastPathComponent
-            updateControls()
-        }
+        panel.title = "Select GOG Game Files"
+        if panel.runModal() == .OK { source = panel.url; refresh() }
     }
 
     @objc private func chooseSaves()
@@ -203,44 +330,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.message = "Optionally choose an existing saves folder. Saves are copied into an Imported subfolder; originals are preserved."
-        let legacy = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/GOG.com/Sid Meier's Alpha Centauri/saves")
+        panel.title = "Select Saved Games"
+        let legacy = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/GOG.com/Sid Meier's Alpha Centauri/saves")
         if FileManager.default.fileExists(atPath: legacy.path) { panel.directoryURL = legacy }
-        if panel.runModal() == .OK
-        {
-            saves = panel.url
-            saveImportButton.title = "Existing Saves Selected"
-        }
+        if panel.runModal() == .OK { saves = panel.url; saveImportButton.title = "Saves Selected" }
     }
 
-    @objc private func install()
+    @objc private func primaryAction()
     {
-        guard let source = source else { return }
-        if source.pathExtension.lowercased() == "exe"
+        if service.manifest != nil
         {
-            guard confirm("Install your GOG download?",
-                "Centauri will run this installer with automatic settings. Use only the offline installer from your GOG library. The game remains subject to its GOG/EA license agreement.", button: "Install") else { return }
+            let game = selectedGame
+            let settings = options
+            perform(playing: true) { token, progress in try self.service.play(game, options: settings, cancellation: token, progress: progress) }
         }
-        let saves = self.saves
-        perform(playing: false)
-        { token, progress in
-            try self.service.install(source: source, saves: saves, cancellation: token, progress: progress)
-        }
-    }
-
-    @objc private func play()
-    {
-        let game = Game.allCases[max(0, gameMenu.indexOfSelectedItem)]
-        var options = PlayOptions()
-        options.windowed = displayMenu.indexOfSelectedItem == 0
-        options.skipIntro = skipIntro.state == .on
-        let size = (resolutionMenu.selectedItem?.representedObject as? String ?? "1024x768").split(separator: "x")
-        options.width = Int(size[0]) ?? 1024
-        options.height = Int(size[1]) ?? 768
-        perform(playing: true)
-        { token, progress in
-            try self.service.play(game, options: options, cancellation: token, progress: progress)
+        else
+        {
+            guard let source = source else { return }
+            if source.pathExtension.lowercased() == "exe" && !confirm("Install GOG Planetary Pack?", "The installer will use automatic settings. The GOG/EA license applies.", button: "Install") { return }
+            let saves = self.saves
+            perform(playing: false) { token, progress in try self.service.install(source: source, saves: saves, cancellation: token, progress: progress) }
         }
     }
 
@@ -251,28 +360,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         token = cancellation
         self.playing = playing
         progress.startAnimation(nil)
-        status.stringValue = playing ? "Starting the game…" : "Preparing installation…"
-        updateControls()
+        status.stringValue = playing ? "Starting…" : "Preparing…"
+        refresh()
         DispatchQueue.global(qos: .userInitiated).async
         {
             var failure: Error?
-            do
-            {
-                try work(cancellation)
-                { message in DispatchQueue.main.async { self.status.stringValue = message } }
-            }
+            do { try work(cancellation) { message in DispatchQueue.main.async { self.status.stringValue = message } } }
             catch { failure = error }
             DispatchQueue.main.async
             {
                 self.token = nil
                 self.playing = false
+                self.options = self.service.options()
                 self.progress.stopAnimation(nil)
-                self.updateControls()
+                self.refresh()
                 if let error = failure
                 {
-                    self.status.stringValue = error.localizedDescription
+                    self.status.stringValue = cancellation.isCancelled ? "Stopped" : "Unable to complete operation"
                     if !cancellation.isCancelled { self.showError(error) }
                 }
+                else { self.status.stringValue = "Ready" }
                 if self.quitWhenFinished { NSApp.reply(toApplicationShouldTerminate: true) }
             }
         }
@@ -281,28 +388,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     @objc private func stop()
     {
         guard token != nil else { return }
-        if playing && !confirm("Stop the game?", "Any unsaved progress will be lost. Use the game's own Quit command after saving whenever possible.", button: "Stop Game") { return }
-        status.stringValue = "Stopping this session…"
+        if playing && !confirm("Stop Game?", "Unsaved progress will be lost.", button: "Stop") { return }
+        status.stringValue = "Stopping…"
         token?.cancel()
-    }
-
-    @objc private func displayChanged() { updateControls() }
-
-    private func updateControls()
-    {
-        let busy = token != nil
-        let installed = service.manifest != nil
-        installButton.isEnabled = !busy && !installed && source != nil
-        installButton.title = installed ? "Installed" : "Install Game"
-        sourceButton.isEnabled = !busy && !installed
-        saveImportButton.isEnabled = !busy && !installed
-        playButton.isEnabled = !busy && installed
-        stopButton.isEnabled = busy
-        stopButton.title = playing ? "Stop Game" : "Cancel"
-        gameMenu.isEnabled = !busy
-        displayMenu.isEnabled = !busy
-        resolutionMenu.isEnabled = !busy && displayMenu.indexOfSelectedItem == 0
-        skipIntro.isEnabled = !busy
     }
 
     @objc private func openSaves()
@@ -310,10 +398,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         if FileManager.default.fileExists(atPath: service.layout.saves.path) { NSWorkspace.shared.open(service.layout.saves) }
     }
 
-    @objc private func openData()
+    @objc private func openGameFiles()
     {
-        do { try service.layout.prepare(); NSWorkspace.shared.open(service.layout.root) }
-        catch { showError(error) }
+        let game = service.layout.installation.appendingPathComponent("game")
+        if FileManager.default.fileExists(atPath: game.path) { NSWorkspace.shared.open(game) }
+    }
+
+    @objc private func openConfiguration()
+    {
+        guard token == nil else { return }
+        let file = service.layout.installation.appendingPathComponent("game/Alpha Centauri.Ini")
+        if Files.isRegular(file), let editor = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.TextEdit")
+        {
+            NSWorkspace.shared.open([file], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+            { _, error in
+                if let error = error { DispatchQueue.main.async { self.showError(error) } }
+            }
+        }
     }
 
     @objc private func exportDiagnostics()
@@ -322,7 +423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.message = "Choose where to export version information and recent logs. No saves or game assets are included. Review logs before sharing; they may contain file names."
+        panel.title = "Export Diagnostics"
         if panel.runModal() == .OK, let destination = panel.url
         {
             do { try service.exportDiagnostics(to: destination); NSWorkspace.shared.open(destination) }
@@ -333,30 +434,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     @objc private func installRosetta()
     {
         guard token == nil else { return }
-        guard confirm("Install Apple's Rosetta?", "Apple Silicon needs Rosetta to run Wine. Continuing accepts Apple's Rosetta software license. You can review Apple's installation information first at support.apple.com/102527.", button: "Agree and Install") else { return }
+        guard confirm("Install Rosetta?", "Continuing accepts Apple's Rosetta software license.", button: "Agree and Install") else { return }
         perform(playing: false)
         { token, progress in
             try self.service.layout.prepare()
-            progress("Installing Rosetta through Apple…")
-            let result = try Commands.run(URL(fileURLWithPath: "/usr/sbin/softwareupdate"),
-                ["--install-rosetta", "--agree-to-license"], log: self.service.layout.logs.appendingPathComponent("rosetta.log"),
-                cancellation: token, timeout: 600)
-            guard result == 0 else { throw CentauriError.message("Rosetta installation failed. See Apple's installation instructions in Help.") }
-            progress("Rosetta is installed. You can install or launch the game now.")
+            progress("Installing Rosetta…")
+            let result = try Commands.run(URL(fileURLWithPath: "/usr/sbin/softwareupdate"), ["--install-rosetta", "--agree-to-license"],
+                log: self.service.layout.logs.appendingPathComponent("rosetta.log"), cancellation: token, timeout: 600)
+            guard result == 0 else { throw CentauriError.message("Rosetta installation failed.") }
         }
     }
 
-    @objc private func openGOG()
-    {
-        NSWorkspace.shared.open(URL(string: "https://www.gog.com/en/game/sid_meiers_alpha_centauri")!)
-    }
-
+    @objc private func openGOG() { NSWorkspace.shared.open(URL(string: "https://www.gog.com/en/game/sid_meiers_alpha_centauri")!) }
+    @objc private func openGitHub() { NSWorkspace.shared.open(URL(string: "https://github.com/drhelius/smac-gog-mac-launcher")!) }
     @objc private func about()
     {
-        NSApp.orderFrontStandardAboutPanel(options: [
-            .applicationName: "Centauri", .applicationVersion: "0.1.0 Development Preview",
-            .credits: NSAttributedString(string: "An open-source launcher by Nacho Sánchez (DrHelius).\nRequires your own GOG Planetary Pack.\nNot affiliated with Firaxis, EA or GOG.")
-        ])
+        NSApp.orderFrontStandardAboutPanel(options: [.applicationName: "SMAC Launcher", .applicationVersion: "0.1.0",
+            .applicationIcon: Interface.icon ?? NSImage(), .credits: NSAttributedString(string: "Nacho Sánchez · DrHelius")])
     }
 
     private func confirm(_ title: String, _ message: String, button: String) -> Bool
@@ -369,30 +463,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func showError(_ error: Error)
-    {
-        let alert = NSAlert(error: error)
-        alert.runModal()
-    }
+    private func showError(_ error: Error) { NSAlert(error: error).runModal() }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply
     {
         guard let token = token else { return .terminateNow }
-        guard confirm("Quit Centauri?", playing ? "This will stop the game. Unsaved progress will be lost." : "This will cancel the current operation.", button: "Quit") else { return .terminateCancel }
+        guard confirm("Quit SMAC Launcher?", playing ? "Unsaved progress will be lost." : "The current operation will be cancelled.", button: "Quit") else { return .terminateCancel }
         quitWhenFinished = true
         token.cancel()
         return .terminateLater
     }
 
-    func windowShouldClose(_ sender: NSWindow) -> Bool
-    {
-        NSApp.terminate(nil)
-        return false
-    }
+    func windowShouldClose(_ sender: NSWindow) -> Bool { NSApp.terminate(nil); return false }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool { window.makeKeyAndOrderFront(nil); return true }
 }
 
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
-app.setActivationPolicy(.regular)
+if CommandLine.arguments.contains("--render-ui") { app.appearance = NSAppearance(named: .aqua) }
+app.setActivationPolicy(CommandLine.arguments.contains("--render-ui") ? .prohibited : .regular)
 app.run()

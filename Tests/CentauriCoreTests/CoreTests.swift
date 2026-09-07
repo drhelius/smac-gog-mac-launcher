@@ -183,7 +183,7 @@ final class CoreTests: XCTestCase
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("Alpha Centauri.Ini.centauri-backup")), data)
         let text = try String(contentsOf: file, encoding: .isoLatin1)
         XCTAssertTrue(text.contains("Name=José"))
-        XCTAssertTrue(text.contains("DisableOpeningMovie=1"))
+        XCTAssertTrue(text.contains("DisableOpeningMovie=0"))
         XCTAssertTrue(text.contains("DirectDraw=0"))
     }
 
@@ -280,6 +280,16 @@ final class CoreTests: XCTestCase
         XCTAssertEqual(try Commands.run(URL(fileURLWithPath: "/usr/bin/printf"), ["%s", text], log: log), 0)
         XCTAssertEqual(try String(contentsOf: log), text)
         XCTAssertThrowsError(try Commands.run(URL(fileURLWithPath: "/bin/sleep"), ["10"], log: log, timeout: 0.1))
+    }
+
+    func testNormalLegacyExitOneDoesNotHideStartupOrCrashFailures() throws
+    {
+        XCTAssertTrue(GameExit.isNormal(1, knownGame: true, log: "experimental wow64 mode\nclass not registered"))
+        XCTAssertTrue(GameExit.isNormal(0, knownGame: false, log: ""))
+        XCTAssertFalse(GameExit.isNormal(1, knownGame: false, log: ""))
+        XCTAssertFalse(GameExit.isNormal(1, knownGame: true, log: "ShellExecuteEx failed: Environment variable not found."))
+        XCTAssertFalse(GameExit.isNormal(1, knownGame: true, log: "Unhandled page fault"))
+        XCTAssertFalse(GameExit.isNormal(139, knownGame: true, log: ""))
     }
 
     func testDiagnosticsExcludeGameDataAndRedactHome() throws

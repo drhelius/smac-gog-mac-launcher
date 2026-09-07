@@ -69,12 +69,21 @@ func main() throws
         print("Data: \(service.layout.root.path)")
         print("Installed: \(service.manifest != nil)")
         print("Runtime: \(RuntimeInstaller.installed(layout: service.layout)?.descriptor.id ?? "not installed")")
+    case "prepare-movie-test":
+        guard args.count == 2, let source = source,
+              let game = ["smac": Game.alphaCentauri, "smacx": Game.alienCrossfire][args[1]] else
+        {
+            throw CentauriError.message("Use prepare-movie-test smac|smacx --source GAME_DIRECTORY")
+        }
+        try MoviePatch.executable(original: source.appendingPathComponent(game.rawValue), game: game,
+            destination: source.appendingPathComponent("centauri-" + game.rawValue))
+        print("Prepared a derived executable; the original is unchanged.")
     case "diagnostics":
         guard let source = source else { throw CentauriError.message("diagnostics requires --source OUTPUT_DIRECTORY") }
         try service.exportDiagnostics(to: source)
     case "help", "--help", "-h":
         print("""
-        Centauri development CLI
+        SMAC Launcher CLI
           inspect --source GAME_APP_OR_FOLDER
           install --source GAME_APP_FOLDER_OR_SETUP_EXE [--saves FOLDER]
                   [--runtime-archive FILE --library-archive FILE]
@@ -82,7 +91,7 @@ func main() throws
           status
           diagnostics --source OUTPUT_DIRECTORY
         Every command accepts --data-dir PATH to isolate development data.
-        Ctrl-C stops only this Centauri session. Game files are never redistributed.
+        Ctrl-C stops only this session. Game files are never redistributed.
         """)
     default: throw CentauriError.message("Unknown command. Use --help.")
     }
@@ -91,6 +100,6 @@ func main() throws
 do { try main() }
 catch
 {
-    fputs("Centauri: \(error.localizedDescription)\n", stderr)
+    fputs("SMAC Launcher: \(error.localizedDescription)\n", stderr)
     exit(1)
 }

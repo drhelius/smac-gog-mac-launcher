@@ -1,0 +1,6 @@
+LIBRARY USER32.dll
+EXPORTS
+GetActiveWindow@0
+ShowWindow@8
+SetForegroundWindow@4
+InvalidateRect@12

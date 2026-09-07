@@ -182,7 +182,7 @@ public final class InstallationLock
         guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else
         {
             Darwin.close(descriptor)
-            throw CentauriError.message("Centauri is already installing or running a game. Close that session first.")
+            throw CentauriError.message("Another launcher session is active. Close it first.")
         }
     }
 
@@ -199,7 +199,7 @@ public enum Commands
     @discardableResult
     public static func run(_ executable: URL, _ arguments: [String], environment: [String: String]? = nil,
                            directory: URL? = nil, log: URL, cancellation: Cancellation = Cancellation(),
-                           timeout: TimeInterval = 180) throws -> Int32
+                           timeout: TimeInterval = 180, tick: (() throws -> Void)? = nil) throws -> Int32
     {
         try cancellation.check()
         try Files.makeDirectory(log.deletingLastPathComponent())
@@ -219,6 +219,12 @@ public enum Commands
         let deadline = Date().addingTimeInterval(timeout)
         while process.isRunning
         {
+            do { try tick?() }
+            catch
+            {
+                if process.isRunning { process.terminate() }
+                throw error
+            }
             // Child stdout/stderr share this file offset. Bound even a repeated runtime fault loop.
             if (try? output.offset()) ?? 0 > 8_000_000
             {
@@ -240,6 +246,6 @@ public enum Commands
         }
         process.waitUntilExit()
         try cancellation.check()
-        return process.terminationStatus
+        return process.terminationReason == .uncaughtSignal ? 128 + process.terminationStatus : process.terminationStatus
     }
 }

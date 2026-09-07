@@ -4,7 +4,7 @@ The application source is MIT licensed. That license does not cover the game, Wi
 
 ## Runtime assembly
 
-The runtime is assembled locally from two unmodified, hash-pinned public downloads. The version, URLs and expected digests are authoritative in `Sources/CentauriCore/Runtime.swift`. The preview application ZIP contains neither archive nor an installed runtime.
+The runtime is assembled locally from two unmodified, hash-pinned public downloads. The version, URLs and expected digests are authoritative in `Sources/CentauriCore/Runtime.swift`. The application ZIP contains neither archive nor an installed runtime.
 
 | Component | Source artifact | SHA-256 |
 | --- | --- | --- |
@@ -27,9 +27,19 @@ Wine is LGPL-licensed; its engine includes additional upstream components such a
 
 ## Public binary distribution boundary
 
-The current package distributes only our launcher and notices. Runtime downloads come directly from the pinned upstream URLs. Before hosting a combined runtime or bundling one in our ZIP, complete an artifact-level license inventory and provide the corresponding source, notices and build/patch materials required by those licenses. That additional redistribution audit is not complete in this preview.
+The current package distributes our launcher, movie hook, native player, a minimal FFmpeg converter and notices. Wine runtime downloads come directly from the pinned upstream URLs. Before hosting a combined Wine runtime or bundling one in our ZIP, complete an artifact-level license inventory and provide the corresponding source, notices and build/patch materials required by those licenses. That additional Wine redistribution audit is not complete for this distribution.
 
 The Sikarugir launcher and Creator are not used or redistributed. Its mixed wrapper licensing does not become our launcher's license. Apple's D3DMetal/GPTK binaries are not included or downloaded by Centauri.
+
+## Native movie support
+
+The converter is built from [FFmpeg 8.0 source](https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz), SHA-256 `b2751fccb6cc4c77708113cd78b561059b6fa904b24162fa0be2d60273d27b8e`. The exact build configuration is in `scripts/build_movies.py`. GPL and nonfree options are not enabled, and autodetected external dependencies are disabled. The resulting converter uses LGPL-2.1-or-later FFmpeg code and Apple's system frameworks.
+
+The app contains `MovieTools/FFmpeg-LICENSE.txt`. The build places the matching unmodified source archive next to the application ZIP; both are uploaded by CI and must accompany a public release. Users can rebuild the separate converter using the checked-in script. No FFmpeg source modifications are made.
+
+The tiny movie hook and native player are our MIT-licensed code. [PRACX's movie implementation](https://github.com/DrazharLn/pracx/blob/master/shared/pracx.cpp) supplied the reference for the movie entry points and the failing DirectDraw teardown. We independently verified the function prologues in the hash-identified executables; the Alien Crossfire destructor begins at `0x004bf400` in our supported payload. PRACX's full renderer/UI patch and binaries are not redistributed or applied.
+
+The original `playuv15.exe` was tested locally but crashed even with software/windowed rendering. It is not used by the native bridge. All converted videos remain local derivatives of the user's own game assets, excluded from the repository and release.
 
 ## Game ownership
 
