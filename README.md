@@ -1,10 +1,11 @@
-<img src="resources/artwork/smac-launcher-square.png" width="128" alt="SMAC Launcher icon">
-
 # SMAC Launcher
 
 Play **Sid Meier's Alpha Centauri** and **Alien Crossfire** on your Mac with your own GOG Planetary Pack.
 
 [Downloads](https://github.com/drhelius/smac-gog-mac-launcher/releases) · [GOG Planetary Pack](https://www.gog.com/en/game/sid_meiers_alpha_centauri) · [Report an issue](https://github.com/drhelius/smac-gog-mac-launcher/issues)
+
+<img width="1012" height="840" alt="image" src="https://github.com/user-attachments/assets/10e1d573-73ea-42d0-8f7b-e2263c6a5128" />
+
 
 ## Requirements
 
