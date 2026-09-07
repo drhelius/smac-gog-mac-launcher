@@ -58,6 +58,14 @@ class PackagingTests(unittest.TestCase):
     def test_complete_release(self):
         self.verify()
 
+    def test_stapled_ticket_and_apple_metadata_are_allowed(self):
+        with zipfile.ZipFile(self.archive, "a") as archive:
+            archive.writestr(check_package.PREFIX + "CodeResources", b"synthetic notarization ticket")
+            archive.writestr(check_package.PREFIX + "_CodeSignature/CodeResources", b"synthetic signature")
+            archive.writestr("__MACOSX/" + check_package.PREFIX + "._CodeResources", b"synthetic AppleDouble metadata")
+        self.write_checksums()
+        self.verify()
+
     def test_missing_helper_or_license(self):
         for name in ["centauri-movie-player", "FFmpeg-LICENSE.txt"]:
             with self.subTest(name=name):

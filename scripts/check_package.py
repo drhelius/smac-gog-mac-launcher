@@ -24,7 +24,8 @@ REQUIRED = {
     PREFIX + "Resources/MovieTools/centauri_movies.dll",
     PREFIX + "Resources/MovieTools/FFmpeg-LICENSE.txt",
 }
-ALLOWED = REQUIRED | {PREFIX + "_CodeSignature/CodeResources"}
+# stapler adds Contents/CodeResources alongside the separate code-signature manifest.
+ALLOWED = REQUIRED | {PREFIX + "_CodeSignature/CodeResources", PREFIX + "CodeResources"}
 DIRECTORIES = {str(parent) for name in ALLOWED for parent in pathlib.PurePosixPath(name).parents if str(parent) != "."}
 
 
