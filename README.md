@@ -4,8 +4,7 @@ Play **Sid Meier's Alpha Centauri** and **Alien Crossfire** on your Mac with you
 
 [Downloads](https://github.com/drhelius/smac-gog-mac-launcher/releases) · [GOG Planetary Pack](https://www.gog.com/en/game/sid_meiers_alpha_centauri) · [Report an issue](https://github.com/drhelius/smac-gog-mac-launcher/issues)
 
-<img width="1012" height="840" alt="image" src="https://github.com/user-attachments/assets/10e1d573-73ea-42d0-8f7b-e2263c6a5128" />
-
+<img width="1012" height="840" alt="image" src="https://github.com/user-attachments/assets/afeb894e-8732-4990-9396-c9687db43048" />
 
 ## Requirements
 
