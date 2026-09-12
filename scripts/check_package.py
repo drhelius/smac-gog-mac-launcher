@@ -22,6 +22,9 @@ REQUIRED = {
     PREFIX + "Resources/MovieTools/centauri-convert",
     PREFIX + "Resources/MovieTools/centauri-movie-player",
     PREFIX + "Resources/MovieTools/centauri_movies.dll",
+    PREFIX + "Resources/MovieTools/centauri-movie-request.exe",
+    PREFIX + "Resources/MovieTools/centauri-window-loader.exe",
+    PREFIX + "Resources/MovieTools/centauri_window.dll",
     PREFIX + "Resources/MovieTools/FFmpeg-LICENSE.txt",
 }
 # stapler adds Contents/CodeResources alongside the separate code-signature manifest.

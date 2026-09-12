@@ -78,11 +78,11 @@ final class MovieTests: XCTestCase
 
     func testMovieNamesCannotEscapeTheMovieDirectory() throws
     {
-        for name in ["../opening.wve", "/opening.wve", "C:\\opening.wve", "opening.wve\n", "opening.mp4", "", "a..wve"]
+        for name in ["../opening.wve", "/opening.wve", "C:\\opening.wve", "opening.wve\n", "opening.exe", "", "a..wve"]
         {
             XCTAssertFalse(MovieBridge.safeName(name), name)
         }
-        for name in ["opening.wve", "humanGenome.wve", "clinical_Immortality.WVE", "movie 2.wve"]
+        for name in ["opening.wve", "humanGenome.wve", "clinical_Immortality.WVE", "movie 2.wve", "opening.mp4"]
         {
             XCTAssertTrue(MovieBridge.safeName(name), name)
         }

@@ -69,9 +69,10 @@ def main():
     shutil.copy2(binary_dir / "centauri-movie-player", tools / "centauri-movie-player")
     # Linker byproducts are developer-only; the app needs only the DLL itself.
     for suffix in [".lib", ".exp"]:
-        generated = tools / ("centauri_movies" + suffix)
-        if generated.exists():
-            generated.unlink()
+        for name in ["centauri_movies", "centauri_window"]:
+            generated = tools / (name + suffix)
+            if generated.exists():
+                generated.unlink()
     shutil.copytree(tools, resources / "MovieTools")
     for name in ["centauri-convert", "centauri-movie-player"]:
         subprocess.run(["codesign", "--force", "--sign", "-", str(resources / "MovieTools" / name)], check=True)

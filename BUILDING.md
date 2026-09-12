@@ -29,6 +29,8 @@ open "build/SMAC Launcher.app" --args --data-dir "$PWD/.local/test"
 build/smac-launcher-cli --help
 ```
 
+The CLI also supports `create-profile`, `configure-profile`, `add-mod` and `install-mod`. Use `play smacx --profile NAME` to test a specific mod configuration. `status` lists configuration IDs. Keep mod downloads and game-based acceptance fixtures in `.local/`; the automated tests use synthetic executables and files.
+
 Keep game files, saves, runtime downloads, logs and signing credentials out of Git. `.local/`, `build/` and `dist/` are ignored. `make clean` removes build outputs and release archives; it keeps `.local/`.
 
 Bug reports should include the app version, macOS version, Mac model and steps to reproduce. Diagnostics are available in **File → Export Diagnostics**; review logs for personal information before attaching them.

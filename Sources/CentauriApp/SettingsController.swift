@@ -13,12 +13,22 @@ final class SettingsController: NSObject
     private var values: [String: NSTextField] = [:]
     private let animation = NSPopUpButton()
     private let display = NSPopUpButton()
+    private let managesDisplay: Bool
+    private let managesSettings: Bool
+    private let nativeMovies: Bool
+    private let windowHeightAlignment: Int
 
-    init(options: PlayOptions, save: @escaping (PlayOptions) throws -> Void, wine: @escaping () -> Void)
+    init(options: PlayOptions, managesDisplay: Bool = true, managesSettings: Bool = true, nativeMovies: Bool = true,
+         windowHeightAlignment: Int = 1,
+         save: @escaping (PlayOptions) throws -> Void, wine: @escaping () -> Void)
     {
         self.options = options
         self.save = save
         self.wine = wine
+        self.managesDisplay = managesDisplay
+        self.managesSettings = managesSettings
+        self.nativeMovies = nativeMovies
+        self.windowHeightAlignment = windowHeightAlignment
     }
 
     func show(on parent: NSWindow, installed: Bool)
@@ -84,6 +94,16 @@ final class SettingsController: NSObject
         tabs.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         footer.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
         loadFields()
+        display.isEnabled = managesDisplay
+        display.toolTip = managesDisplay ? nil : "Display mode is controlled by the selected mod. PRACX uses Alt+Enter to toggle windowed mode."
+        if !managesSettings
+        {
+            for field in fields.values { field.isEnabled = false }
+            for slider in sliders.values { slider.isEnabled = false }
+            for check in checks.values { check.isEnabled = false }
+            animation.isEnabled = false
+        }
+        checks["moviesEnabled"]?.isEnabled = nativeMovies
         parent.beginSheet(window)
     }
 
@@ -155,13 +175,13 @@ final class SettingsController: NSObject
 
     @objc private func displayChanged()
     {
-        fields["width"]?.isEnabled = display.indexOfSelectedItem == 1
-        fields["height"]?.isEnabled = display.indexOfSelectedItem == 1
+        fields["width"]?.isEnabled = managesDisplay && display.indexOfSelectedItem == 1
+        fields["height"]?.isEnabled = managesDisplay && display.indexOfSelectedItem == 1
     }
 
     @objc private func checkChanged()
     {
-        checks["showIntro"]?.isEnabled = checks["moviesEnabled"]?.state == .on
+        checks["showIntro"]?.isEnabled = nativeMovies && checks["moviesEnabled"]?.state == .on
     }
 
     private func loadFields()
@@ -212,7 +232,15 @@ final class SettingsController: NSObject
         options.voiceVolume = sliders["voiceVolume"]!.integerValue
         options.movieVolume = sliders["movieVolume"]!.integerValue
         options.gamma = sliders["gamma"]!.integerValue
-        do { try save(options); cancel() }
+        do
+        {
+            if options.windowed && options.height % windowHeightAlignment != 0
+            {
+                throw CentauriError.message("Window height must be divisible by \(windowHeightAlignment).")
+            }
+            try save(options)
+            cancel()
+        }
         catch { NSAlert(error: error).runModal() }
     }
 

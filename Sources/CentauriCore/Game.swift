@@ -84,20 +84,46 @@ public enum GameSource
 
     public static func isWindowsX86(_ file: URL) throws -> Bool
     {
+        try windowsMachine(file) == 0x14c
+    }
+
+    public static func isWindowsExecutable(_ file: URL) throws -> Bool
+    {
+        try windowsMachine(file) != nil
+    }
+
+    private static func windowsMachine(_ file: URL) throws -> Int?
+    {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         guard let dos = try handle.read(upToCount: 64), dos.count == 64,
-              dos[0] == 0x4d, dos[1] == 0x5a else { return false }
+              dos[0] == 0x4d, dos[1] == 0x5a else { return nil }
         let offset = UInt64(dos[60]) | UInt64(dos[61]) << 8 | UInt64(dos[62]) << 16 | UInt64(dos[63]) << 24
-        guard offset >= 64, offset <= 16 * 1024 * 1024 else { return false }
+        guard offset >= 64, offset <= 16 * 1024 * 1024 else { return nil }
         try handle.seek(toOffset: offset)
-        guard let pe = try handle.read(upToCount: 26), pe.count == 26 else { return false }
-        return Array(pe[0..<6]) == [0x50, 0x45, 0, 0, 0x4c, 0x01] && pe[24] == 0x0b && pe[25] == 0x01
+        guard let pe = try handle.read(upToCount: 26), pe.count == 26,
+              Array(pe[0..<4]) == [0x50, 0x45, 0, 0] else { return nil }
+        let machine = Int(pe[4]) | Int(pe[5]) << 8
+        let magic = Int(pe[24]) | Int(pe[25]) << 8
+        return (machine == 0x14c && magic == 0x10b) || (machine == 0x8664 && magic == 0x20b) ? machine : nil
     }
 }
 
 public enum GameConfiguration
 {
+    public static func removing(_ text: String, section: String, key: String) -> String
+    {
+        var current = ""
+        return text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n").filter
+        { raw in
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("["), line.hasSuffix("]") { current = String(line.dropFirst().dropLast()) }
+            guard current.caseInsensitiveCompare(section) == .orderedSame, !line.hasPrefix(";"),
+                  let separator = line.firstIndex(of: "=") else { return true }
+            return line[..<separator].trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(key) != .orderedSame
+        }.joined(separator: "\r\n")
+    }
+
     public static func values(_ text: String) -> [String: String]
     {
         var result: [String: String] = [:]

@@ -5,12 +5,18 @@ public struct MovieTools
     public let converter: URL
     public let player: URL
     public let hook: URL
+    public let requestPlayer: URL
+    public let windowLoader: URL
+    public let windowHook: URL
 
     public init(directory: URL)
     {
         converter = directory.appendingPathComponent("centauri-convert")
         player = directory.appendingPathComponent("centauri-movie-player")
         hook = directory.appendingPathComponent("centauri_movies.dll")
+        requestPlayer = directory.appendingPathComponent("centauri-movie-request.exe")
+        windowLoader = directory.appendingPathComponent("centauri-window-loader.exe")
+        windowHook = directory.appendingPathComponent("centauri_window.dll")
     }
 
     public static func discover() -> MovieTools?
@@ -65,7 +71,7 @@ public final class MovieBridge
     public static func safeName(_ input: String) -> Bool
     {
         guard !input.isEmpty, input.utf8.count < 128, !input.contains(".."),
-              input.lowercased().hasSuffix(".wve") else { return false }
+              ["wve", "mp4"].contains((input as NSString).pathExtension.lowercased()) else { return false }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.")
         return input.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
@@ -93,9 +99,10 @@ public final class MovieBridge
             {
                 throw CentauriError.message("The movie \(name) is missing.")
             }
-            let hash = try Files.sha256(input, cancellation: token)
-            let output = cache.appendingPathComponent("ffmpeg8-v1-" + hash + ".mp4")
-            if !Files.isRegular(output)
+            let nativeInput = input.pathExtension.lowercased() == "mp4"
+            let hash = nativeInput ? "" : try Files.sha256(input, cancellation: token)
+            let output = nativeInput ? input : cache.appendingPathComponent("ffmpeg8-v1-" + hash + ".mp4")
+            if !nativeInput && !Files.isRegular(output)
             {
                 progress("Preparing cutscene…")
                 try Files.requireSpace(at: cache, bytes: 500_000_000)
@@ -117,8 +124,8 @@ public final class MovieBridge
             let status = try Commands.run(tools.player, [output.path, "--volume", String(volume)], log: log, cancellation: token, timeout: 900)
             guard status == 0 else
             {
-                try? FileManager.default.removeItem(at: output)
-                throw CentauriError.message("Native movie playback failed. The cached conversion was removed so it can be retried.")
+                if !nativeInput { try? FileManager.default.removeItem(at: output) }
+                throw CentauriError.message("Native movie playback failed.")
             }
             progress("Running")
         }

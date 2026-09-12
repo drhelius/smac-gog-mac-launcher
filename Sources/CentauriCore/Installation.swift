@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 public final class CentauriService
 {
@@ -105,7 +106,8 @@ public final class CentauriService
         progress("Ready")
     }
 
-    public func play(_ game: Game, options: PlayOptions, cancellation: Cancellation, progress: @escaping ProgressHandler) throws
+    public func play(_ game: Game, options: PlayOptions, profile: LaunchProfile? = nil,
+                     cancellation: Cancellation, progress: @escaping ProgressHandler) throws
     {
         try layout.prepare()
         let lock = try InstallationLock(root: layout.root)
@@ -119,53 +121,95 @@ public final class CentauriService
         }
         try options.validate()
         try checkRuntime(runtime, cancellation: cancellation)
-        let directory = layout.installation.appendingPathComponent("game")
-        try Files.requireRealDirectory(directory)
-        let executable = directory.appendingPathComponent(game.rawValue)
-        guard Files.isRegular(executable), try Files.sha256(executable, cancellation: cancellation) == manifest.executableHashes[game.rawValue] else
+        if let profile = profile, profile.game != game
         {
-            throw CentauriError.message("The game executable changed after import. This version supports the imported binaries only; restore your original executable before playing.")
+            throw CentauriError.message("Select the game associated with this mod configuration.")
         }
-        try GameConfiguration.apply(options, gameDirectory: directory)
-        try Files.writeJSON(options, to: layout.installation.appendingPathComponent("options.json"))
-        let prefix = layout.installation.appendingPathComponent("prefix")
-        try Files.requireRealDirectory(prefix)
-        let log = freshLog("game.log")
-        defer { runtime.stop(prefix: prefix, log: log) }
-        var bridge: MovieBridge?
-        var program = game.rawValue
-        if let tools = MovieTools.discover(), manifest.recognizedLegacyBuild
+        let root = try profile.map { try profileDirectory($0) } ?? layout.installation
+        if let profile = profile { try recoverProfileGame(profile) }
+        let gameFiles = try gameDirectory(profile: profile)
+        let plan = try LaunchPlan.resolve(directory: gameFiles, game: game, profile: profile)
+        let directory = plan.workingDirectory
+        let movieReceipt = root.appendingPathComponent("movie-settings.json")
+        try ModConfiguration.restoreMovies(in: directory, receipt: movieReceipt)
+        if plan.managesSettings
         {
-            program = "centauri-" + game.rawValue
-            try MoviePatch.executable(original: executable, game: game, destination: directory.appendingPathComponent(program))
-            let hook = directory.appendingPathComponent("centauri_movies.dll")
-            if FileManager.default.fileExists(atPath: hook.path) || Files.isLink(hook)
+            var settings = options
+            if plan.integration == .thinker { settings.directDraw = false }
+            try GameConfiguration.apply(settings, gameDirectory: directory)
+        }
+        try Files.writeJSON(options, to: root.appendingPathComponent("options.json"))
+        let log = freshLog("game.log")
+        let prefix = try profile.map { try prepareModPrefix($0, runtime: runtime, cancellation: cancellation, log: log) }
+            ?? layout.installation.appendingPathComponent("prefix")
+        try Files.requireRealDirectory(prefix)
+        defer
+        {
+            runtime.stop(prefix: prefix, log: log)
+            try? ModConfiguration.restoreMovies(in: directory, receipt: movieReceipt)
+        }
+        var bridge: MovieBridge?
+        var program = plan.executable.path
+        if plan.nativeMovies
+        {
+            guard let tools = MovieTools.discover() else { throw CentauriError.message("The launcher's movie tools are missing. Reinstall SMAC Launcher.") }
+            if plan.integration == .native
             {
-                try FileManager.default.removeItem(at: hook)
+                program = directory.appendingPathComponent("centauri-" + game.rawValue).path
+                try MoviePatch.executable(original: plan.executable, game: game, destination: URL(fileURLWithPath: program))
+                let hook = directory.appendingPathComponent("centauri_movies.dll")
+                if FileManager.default.fileExists(atPath: hook.path) || Files.isLink(hook) { try FileManager.default.removeItem(at: hook) }
+                try FileManager.default.copyItem(at: tools.hook, to: hook)
             }
-            try FileManager.default.copyItem(at: tools.hook, to: hook)
-            bridge = try MovieBridge(game: directory, cache: layout.installation.appendingPathComponent("MovieCache"),
+            else
+            {
+                guard Files.isRegular(tools.requestPlayer) else { throw CentauriError.message("The external movie command is missing. Reinstall SMAC Launcher.") }
+                let player = directory.appendingPathComponent("centauri-movie-request.exe")
+                if FileManager.default.fileExists(atPath: player.path) || Files.isLink(player) { try FileManager.default.removeItem(at: player) }
+                try FileManager.default.copyItem(at: tools.requestPlayer, to: player)
+                try ModConfiguration.applyMovies(in: directory, receipt: movieReceipt, integration: plan.integration)
+            }
+            bridge = try MovieBridge(game: directory, cache: root.appendingPathComponent("MovieCache"),
                 tools: tools, log: layout.logs.appendingPathComponent("movies.log"), token: cancellation,
                 enabled: options.moviesEnabled, volume: options.movieVolume * options.masterVolume / 127, progress: progress)
         }
-        else if !options.skipIntro && options.moviesEnabled
-        {
-            throw CentauriError.message("Native movie support is unavailable for this build or game version. Turn off Opening movie in the launcher.")
-        }
         // A custom drive letter can be reassigned by Wine's mounted-volume discovery.
         // Resolve the executable from our explicit working directory, as in the verified prototype.
-        let arguments = [program]
-        var environment = runtime.environment(prefix: prefix)
-        if options.windowed && bridge == nil
+        let useWindowHelper = plan.integration == .thinker && !plan.usesPRACX
+        var presentation = options
+        if useWindowHelper
         {
-            throw CentauriError.message("Windowed mode requires the supported GOG executables.")
+            let desktop = CGDisplayBounds(CGMainDisplayID()).size
+            presentation = ModConfiguration.presentationOptions(options, desktopWidth: Int(desktop.width), desktopHeight: Int(desktop.height))
         }
-        environment["SMAC_WINDOWED"] = options.windowed ? "1" : "0"
-        environment["SMAC_WINDOW_WIDTH"] = String(options.width)
-        environment["SMAC_WINDOW_HEIGHT"] = String(options.height)
-        if options.windowed
+        var parameters = try ModConfiguration.applyDisplay(in: directory, plan: plan, options: presentation)
+        if useWindowHelper
         {
-            let key = "HKCU\\Software\\Wine\\AppDefaults\\\(program)\\Mac Driver"
+            guard let tools = MovieTools.discover(), Files.isRegular(tools.windowLoader), Files.isRegular(tools.windowHook) else
+            {
+                throw CentauriError.message("The launcher's window tools are missing. Reinstall SMAC Launcher.")
+            }
+            for tool in [tools.windowLoader, tools.windowHook]
+            {
+                let target = directory.appendingPathComponent(tool.lastPathComponent)
+                if FileManager.default.fileExists(atPath: target.path) || Files.isLink(target) { try FileManager.default.removeItem(at: target) }
+                try FileManager.default.copyItem(at: tool, to: target)
+            }
+            // Pass the selected mod launcher unchanged; it still loads Thinker itself.
+            let windowsProgram = "Z:" + program.replacingOccurrences(of: "/", with: "\\")
+            parameters = [windowsProgram] + parameters.filter { !["-native", "-screen", "-windowed"].contains($0) } + ["-windowed"]
+            program = directory.appendingPathComponent("centauri-window-loader.exe").path
+        }
+        let arguments = [program] + parameters
+        var environment = runtime.environment(prefix: prefix)
+        environment["SMAC_WINDOWED"] = options.windowed ? "1" : "0"
+        environment["SMAC_WINDOW_WIDTH"] = String(presentation.width)
+        environment["SMAC_WINDOW_HEIGHT"] = String(presentation.height)
+        environment["SMAC_FULLSCREEN"] = options.windowed ? "0" : "1"
+        if (options.windowed && plan.integration == .native) || useWindowHelper
+        {
+            let target = useWindowHelper ? "terranx.exe" : URL(fileURLWithPath: program).lastPathComponent
+            let key = "HKCU\\Software\\Wine\\AppDefaults\\\(target)\\Mac Driver"
             for (name, value) in [("Decorated", "Y"), ("AllowImmovableWindows", "N"), ("CursorClippingLocksWindows", "N")]
             {
                 let result = try Commands.run(runtime.wine, ["reg", "add", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"],
@@ -178,13 +222,14 @@ public final class CentauriService
             directory: directory, log: log, cancellation: cancellation, timeout: 7 * 24 * 3600, tick: { try bridge?.tick() })
         // Retain our lock until Wine has no remaining clients for this game session.
         let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
-        if GameExit.isNormal(status, knownGame: manifest.recognizedLegacyBuild, log: output)
+        let legacyExit = plan.knownGame || plan.integration == .pracx
+        if GameExit.isNormal(status, knownGame: legacyExit, log: output)
         {
             _ = try Commands.run(runtime.server, ["-w"], environment: runtime.environment(prefix: prefix),
                 log: log, cancellation: cancellation, timeout: 7 * 24 * 3600, tick: { try bridge?.tick() })
         }
         let finalOutput = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
-        guard GameExit.isNormal(status, knownGame: manifest.recognizedLegacyBuild, log: finalOutput) else
+        guard GameExit.isNormal(status, knownGame: legacyExit, log: finalOutput) else
         {
             throw CentauriError.message("The game stopped unexpectedly (exit code \(status)). Export diagnostics to investigate.")
         }
@@ -215,7 +260,7 @@ public final class CentauriService
         else { try Files.writeJSON(options, to: layout.root.appendingPathComponent("preferences.json")) }
     }
 
-    public func configureWine(cancellation: Cancellation, progress: ProgressHandler) throws
+    public func configureWine(profile: LaunchProfile? = nil, cancellation: Cancellation, progress: ProgressHandler) throws
     {
         try layout.prepare()
         let lock = try InstallationLock(root: layout.root)
@@ -224,8 +269,9 @@ public final class CentauriService
         {
             throw CentauriError.message("Install the game first.")
         }
-        let prefix = layout.installation.appendingPathComponent("prefix")
         let log = freshLog("wine-settings.log")
+        let prefix = try profile.map { try prepareModPrefix($0, runtime: runtime, cancellation: cancellation, log: log) }
+            ?? layout.installation.appendingPathComponent("prefix")
         defer { runtime.stop(prefix: prefix, log: log) }
         progress("Wine settings")
         let status = try Commands.run(runtime.wine, ["winecfg"], environment: runtime.environment(prefix: prefix),
@@ -240,7 +286,7 @@ public final class CentauriService
         try Files.makeDirectory(directory)
         let report = "SMAC Launcher \(BuildInfo.version)\nBuild: \(BuildInfo.revision)\nmacOS: \(ProcessInfo.processInfo.operatingSystemVersionString)\nRuntime: \(RuntimeDescriptor.pinned.id)\nInstalled: \(manifest != nil)\nKnown legacy executables: \(manifest?.recognizedLegacyBuild == true)\n"
         try report.write(to: directory.appendingPathComponent("report.txt"), atomically: true, encoding: .utf8)
-        for name in ["install.log", "game.log", "runtime.log", "runtime-check.log", "movies.log"]
+        for name in ["install.log", "game.log", "runtime.log", "runtime-check.log", "movies.log", "mod-installer.log"]
         {
             let input = layout.logs.appendingPathComponent(name)
             guard Files.isRegular(input) else { continue }

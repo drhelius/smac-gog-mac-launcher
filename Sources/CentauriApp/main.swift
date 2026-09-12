@@ -14,6 +14,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }()
     private var window: NSWindow!
     private var settingsController: SettingsController?
+    private var profileController: ProfileController?
+    private var profiles: [LaunchProfile] = []
+    private var selectedProfileID = ""
+    private var selectedProfile: LaunchProfile? { profiles.first { $0.id == selectedProfileID && $0.game == selectedGame } }
+    private let profilePicker = NSPopUpButton()
+    private let modActions = NSPopUpButton(frame: .zero, pullsDown: true)
     private var options = PlayOptions()
     private var selectedGame: Game = .alphaCentauri
     private var gameButtons: [GameButton] = []
@@ -31,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var filesButton: NSButton!
     private let display = NSSegmentedControl(labels: ["Fullscreen", "Window"], trackingMode: .selectOne, target: nil, action: nil)
     private let resolution = NSPopUpButton()
+    private var resolutionSizes = [(1024, 768), (1280, 800), (1600, 900), (1920, 1080)]
     private let openingMovie = NSSwitch()
     private var setupCard: NSView!
     private var displayGrid: NSGridView!
@@ -45,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         options = service.options()
         let index = UserDefaults.standard.integer(forKey: "selectedGame")
         selectedGame = Game.allCases.indices.contains(index) ? Game.allCases[index] : .alphaCentauri
+        reloadProfiles()
+        options = service.options(profile: selectedProfile)
         let candidate = URL(fileURLWithPath: "/Applications/Sid Meier's Alpha Centauri Planetary Pack.app")
         if FileManager.default.fileExists(atPath: candidate.path) { source = candidate }
         createMenu()
@@ -59,7 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func applicationDidBecomeActive(_ notification: Notification)
     {
         guard window != nil, token == nil, window.attachedSheet == nil else { return }
-        options = service.options()
+        reloadProfiles()
+        options = service.options(profile: selectedProfile)
         refresh()
     }
 
@@ -67,6 +77,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     {
         switch menuItem.action
         {
+        case #selector(newProfile):
+            return token == nil && service.manifest != nil && window?.attachedSheet == nil
+        case #selector(editProfile), #selector(addModFiles), #selector(runModInstaller), #selector(removeProfile):
+            return token == nil && selectedProfile != nil && window?.attachedSheet == nil
         case #selector(showSettings), #selector(installRosetta):
             return token == nil && window?.attachedSheet == nil
         case #selector(openConfiguration):
@@ -205,7 +219,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         openingMovie.setAccessibilityLabel("Opening movie")
         openingMovie.action = #selector(changeOpeningMovie)
         advancedButton = Interface.button("Advanced Settings…", target: self, action: #selector(showSettings))
+        profilePicker.target = self
+        profilePicker.action = #selector(changeProfile)
+        profilePicker.widthAnchor.constraint(equalToConstant: 225).isActive = true
+        profilePicker.setAccessibilityLabel("Game configuration")
+        modActions.addItem(withTitle: "Mods")
+        for (title, action) in [("New Configuration…", #selector(newProfile)), ("Edit Configuration…", #selector(editProfile)),
+                                ("Add Mod Files…", #selector(addModFiles)), ("Run Mod Installer…", #selector(runModInstaller)),
+                                ("Remove Configuration…", #selector(removeProfile))]
+        {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            modActions.menu?.addItem(item)
+        }
         displayGrid = NSGridView(views: [
+            [Interface.label("Configuration"), Interface.stack([profilePicker, modActions], vertical: false)],
             [Interface.label("Display"), display],
             [Interface.label("Window size"), resolution],
             [Interface.label("Opening movie"), openingMovie],
@@ -282,28 +310,175 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         advancedButton.isEnabled = !busy
         savesButton.isEnabled = installed
         filesButton.isEnabled = installed
+        profilePicker.isEnabled = !busy && installed
+        modActions.isEnabled = !busy && installed
+        let plan = try? LaunchPlan.resolve(directory: service.gameDirectory(profile: selectedProfile), game: selectedGame, profile: selectedProfile)
+        resolutionSizes = [(1024, 768), (1280, 800), (1600, plan?.integration == .thinker ? 896 : 900), (1920, 1080)]
+        let titles = resolutionSizes.map { "\($0.0) × \($0.1)" } + ["Custom…"]
+        if resolution.itemTitles != titles { resolution.removeAllItems(); resolution.addItems(withTitles: titles) }
+        displayGrid.row(at: 0).isHidden = !installed
+        displayGrid.row(at: 1).isHidden = installed && plan?.managesDisplay != true
         display.isEnabled = !busy
         resolution.isEnabled = !busy
-        openingMovie.isEnabled = !busy && options.moviesEnabled
+        openingMovie.isEnabled = !busy && options.moviesEnabled && (!installed || plan?.nativeMovies == true)
+        openingMovie.toolTip = plan?.nativeMovies == false ? "Movie playback is controlled by the selected mod." : nil
         display.selectedSegment = options.windowed ? 1 : 0
-        displayGrid.row(at: 1).isHidden = !options.windowed
+        displayGrid.row(at: 2).isHidden = !options.windowed || (installed && plan?.managesDisplay != true)
         openingMovie.state = options.skipIntro ? .off : .on
         let size = "\(options.width) × \(options.height)"
         if resolution.itemTitles.contains(size) { resolution.selectItem(withTitle: size) }
         else { resolution.selectItem(withTitle: "Custom…") }
     }
 
+    private func reloadProfiles()
+    {
+        profiles = service.profiles().filter { $0.game == selectedGame }
+        selectedProfileID = UserDefaults.standard.string(forKey: "profile-" + selectedGame.rawValue) ?? ""
+        profilePicker.removeAllItems()
+        profilePicker.addItem(withTitle: "Original")
+        profilePicker.addItems(withTitles: profiles.map(\.name))
+        if let index = profiles.firstIndex(where: { $0.id == selectedProfileID }) { profilePicker.selectItem(at: index + 1) }
+        else { selectedProfileID = ""; profilePicker.selectItem(at: 0) }
+    }
+
+    private func selectProfile(_ profile: LaunchProfile)
+    {
+        UserDefaults.standard.set(profile.id, forKey: "profile-" + selectedGame.rawValue)
+        reloadProfiles()
+        options = service.options(profile: selectedProfile)
+        refresh()
+    }
+
+    @objc private func changeProfile()
+    {
+        let index = profilePicker.indexOfSelectedItem - 1
+        selectedProfileID = profiles.indices.contains(index) ? profiles[index].id : ""
+        UserDefaults.standard.set(selectedProfileID, forKey: "profile-" + selectedGame.rawValue)
+        options = service.options(profile: selectedProfile)
+        refresh()
+    }
+
+    @objc private func newProfile()
+    {
+        guard token == nil, service.manifest != nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "New Mod Configuration"
+        let name = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        name.placeholderString = "Configuration name"
+        alert.accessoryView = name
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = name
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let title = name.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let game = selectedGame
+        var created: LaunchProfile?
+        perform(playing: false, completion:
+        {
+            if let profile = created { self.selectProfile(profile); self.editProfile() }
+        })
+        { token, progress in
+            created = try self.service.createProfile(name: title, game: game, cancellation: token, progress: progress)
+        }
+    }
+
+    @objc private func editProfile()
+    {
+        guard token == nil, window.attachedSheet == nil, let profile = selectedProfile else { return }
+        do
+        {
+            profileController = ProfileController(profile: profile, directory: try service.gameDirectory(profile: profile))
+            { updated in
+                try self.service.saveProfile(updated)
+                self.selectProfile(updated)
+            }
+            profileController?.show(on: window)
+        }
+        catch { showError(error) }
+    }
+
+    private func suggestExecutable(_ profile: LaunchProfile) throws
+    {
+        let directory = try service.gameDirectory(profile: profile)
+        let names = LaunchPlan.executables(in: directory)
+        let candidates = (profile.game == .alienCrossfire ? ["thinker.exe"] : []) +
+            [profile.game.rawValue.replacingOccurrences(of: ".exe", with: "_PRACX.exe")]
+        if let executable = candidates.compactMap({ candidate in names.first { $0.caseInsensitiveCompare(candidate) == .orderedSame } }).first,
+           profile.executable.isEmpty || profile.executable == profile.game.rawValue
+        {
+            var updated = profile
+            updated.executable = executable
+            try service.saveProfile(updated)
+        }
+    }
+
+    @objc private func removeProfile()
+    {
+        guard let profile = selectedProfile, token == nil else { return }
+        guard confirm("Move \(profile.name) to Trash?", "This includes this configuration's mod files and saved games.", button: "Move to Trash") else { return }
+        do
+        {
+            try service.removeProfile(profile)
+            reloadProfiles()
+            options = service.options(profile: selectedProfile)
+            refresh()
+        }
+        catch { showError(error) }
+    }
+
+    @objc private func addModFiles()
+    {
+        guard let profile = selectedProfile, token == nil else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Extracted Mod Files"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        guard panel.runModal() == .OK, let source = panel.url else { return }
+        perform(playing: false, completion: { self.editProfile() })
+        { token, progress in
+            try self.service.addModFiles(source, profile: profile, cancellation: token, progress: progress)
+            try self.suggestExecutable(profile)
+        }
+    }
+
+    @objc private func runModInstaller()
+    {
+        guard let profile = selectedProfile, token == nil else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Windows Mod Installer"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK, let installer = panel.url else { return }
+        let alert = NSAlert()
+        alert.messageText = "Run Mod Installer"
+        alert.informativeText = "Choose C:\\SMAC as the destination in the installer."
+        let arguments = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        arguments.placeholderString = "Optional installer arguments"
+        alert.accessoryView = arguments
+        alert.addButton(withTitle: "Run")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let parameters = arguments.stringValue
+        perform(playing: false, completion: { self.editProfile() })
+        { token, progress in
+            try self.service.installMod(installer, profile: profile, arguments: parameters, cancellation: token, progress: progress)
+            try self.suggestExecutable(profile)
+        }
+    }
+
     @objc private func selectGame(_ button: GameButton)
     {
         selectedGame = button.game
         UserDefaults.standard.set(Game.allCases.firstIndex(of: selectedGame) ?? 0, forKey: "selectedGame")
+        reloadProfiles()
+        options = service.options(profile: selectedProfile)
         refresh()
     }
 
     private func saveSettings()
     {
-        do { try service.saveOptions(options) }
-        catch { options = service.options(); showError(error) }
+        do { try service.saveOptions(options, profile: selectedProfile) }
+        catch { options = service.options(profile: selectedProfile); showError(error) }
         refresh()
     }
 
@@ -312,8 +487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func changeResolution()
     {
         if resolution.indexOfSelectedItem == 4 { showSettings(); refresh(); return }
-        let sizes = [(1024, 768), (1280, 800), (1600, 900), (1920, 1080)]
-        let size = sizes[max(0, resolution.indexOfSelectedItem)]
+        let size = resolutionSizes[max(0, resolution.indexOfSelectedItem)]
         options.width = size.0
         options.height = size.1
         saveSettings()
@@ -322,15 +496,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     @objc private func showSettings()
     {
         guard token == nil, window.attachedSheet == nil else { return }
-        options = service.options()
-        settingsController = SettingsController(options: options, save:
+        options = service.options(profile: selectedProfile)
+        let profile = selectedProfile
+        let plan = try? LaunchPlan.resolve(directory: service.gameDirectory(profile: profile), game: selectedGame, profile: profile)
+        settingsController = SettingsController(options: options,
+            managesDisplay: service.manifest == nil || plan?.managesDisplay == true,
+            managesSettings: service.manifest == nil || plan?.managesSettings == true,
+            nativeMovies: service.manifest == nil || plan?.nativeMovies == true,
+            windowHeightAlignment: plan?.integration == .thinker && plan?.usesPRACX == false ? 8 : 1, save:
         { settings in
-            try self.service.saveOptions(settings)
+            try self.service.saveOptions(settings, profile: profile)
             self.options = settings
             self.refresh()
         }, wine:
         {
-            self.perform(playing: false) { token, progress in try self.service.configureWine(cancellation: token, progress: progress) }
+            self.perform(playing: false) { token, progress in try self.service.configureWine(profile: profile, cancellation: token, progress: progress) }
         })
         settingsController?.show(on: window, installed: service.manifest != nil)
     }
@@ -362,7 +542,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         {
             let game = selectedGame
             let settings = options
-            perform(playing: true) { token, progress in try self.service.play(game, options: settings, cancellation: token, progress: progress) }
+            let profile = selectedProfile
+            perform(playing: true) { token, progress in try self.service.play(game, options: settings, profile: profile, cancellation: token, progress: progress) }
         }
         else
         {
@@ -373,7 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
-    private func perform(playing: Bool, work: @escaping (Cancellation, @escaping ProgressHandler) throws -> Void)
+    private func perform(playing: Bool, completion: (() -> Void)? = nil,
+                         work: @escaping (Cancellation, @escaping ProgressHandler) throws -> Void)
     {
         guard token == nil else { return }
         let cancellation = Cancellation()
@@ -402,7 +584,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             {
                 self.token = nil
                 self.playing = false
-                self.options = self.service.options()
+                self.reloadProfiles()
+                self.options = self.service.options(profile: self.selectedProfile)
                 self.progress.stopAnimation(nil)
                 self.refresh()
                 self.status.stringValue = ""
@@ -411,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 {
                     if !cancellation.isCancelled { self.showError(error) }
                 }
+                else { completion?() }
                 if self.quitWhenFinished { NSApp.reply(toApplicationShouldTerminate: true) }
             }
         }
@@ -426,19 +610,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     @objc private func openSaves()
     {
-        if FileManager.default.fileExists(atPath: service.layout.saves.path) { NSWorkspace.shared.open(service.layout.saves) }
+        if let game = try? service.gameDirectory(profile: selectedProfile)
+        {
+            let working = (try? LaunchPlan.directory(in: game, relative: selectedProfile?.workingDirectory ?? "")) ?? game
+            NSWorkspace.shared.open(working.appendingPathComponent("saves"))
+        }
     }
 
     @objc private func openGameFiles()
     {
-        let game = service.layout.installation.appendingPathComponent("game")
-        if FileManager.default.fileExists(atPath: game.path) { NSWorkspace.shared.open(game) }
+        if let game = try? service.gameDirectory(profile: selectedProfile) { NSWorkspace.shared.open(game) }
     }
 
     @objc private func openConfiguration()
     {
         guard token == nil else { return }
-        let file = service.layout.installation.appendingPathComponent("game/Alpha Centauri.Ini")
+        guard let game = try? service.gameDirectory(profile: selectedProfile) else { return }
+        let working = (try? LaunchPlan.directory(in: game, relative: selectedProfile?.workingDirectory ?? "")) ?? game
+        let file = working.appendingPathComponent("Alpha Centauri.Ini")
         if Files.isRegular(file), let editor = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.TextEdit")
         {
             NSWorkspace.shared.open([file], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())

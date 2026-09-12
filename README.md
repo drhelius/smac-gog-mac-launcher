@@ -21,6 +21,8 @@ Play **Sid Meier's Alpha Centauri** and **Alien Crossfire** on your Mac with you
 
 Choose fullscreen or a movable window, watch cutscenes, and adjust display, audio and gameplay options in **Advanced Settings**. Use **Saved Games** to find your saves. Updating the launcher keeps your installed game and saves.
 
+For mods, choose **Mods → New Configuration**, then **Add Mod Files** or **Run Mod Installer**. Select the mod's executable in **Edit Configuration**. PRACX and Thinker are detected automatically; **Custom executable** lets you set your own executable, arguments and working folder. Each configuration has separate game files, settings and saves.
+
 No game files are included. Your original installation is preserved.
 
 [Build from source](BUILDING.md) · [MIT license](LICENSE) · [Third-party notices](THIRD_PARTY.md)

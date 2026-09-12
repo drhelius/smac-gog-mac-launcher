@@ -74,6 +74,11 @@ public struct Layout
 
 public enum Files
 {
+    public static func isDirectory(_ url: URL) -> Bool
+    {
+        (try? requireRealDirectory(url)) != nil
+    }
+
     public static func makeDirectory(_ url: URL) throws
     {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -81,12 +86,12 @@ public enum Files
 
     public static func isLink(_ url: URL) -> Bool
     {
-        (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
+        (try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
     }
 
     public static func requireRealDirectory(_ url: URL) throws
     {
-        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        let values = try URL(fileURLWithPath: url.path).resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard values.isDirectory == true, values.isSymbolicLink != true else
         {
             throw CentauriError.message("Expected a real directory: \(url.lastPathComponent)")
@@ -95,7 +100,7 @@ public enum Files
 
     public static func isRegular(_ url: URL) -> Bool
     {
-        guard let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
+        guard let v = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return false }
         return v.isRegularFile == true && v.isSymbolicLink != true
     }
 

@@ -16,3 +16,7 @@ SetWindowLongA@12
 SetWindowPos@28
 DefWindowProcA@16
 CallWindowProcA@20
+GetWindowRect@8
+SetWindowPlacement@8
+ClipCursor@4
+GetAsyncKeyState@4

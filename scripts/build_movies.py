@@ -78,6 +78,17 @@ def build(destination):
     command = [linker] + (["-flavor", "link"] if pathlib.Path(linker).name == "lld" else [])
     run(command + ["/dll", "/machine:x86", "/nodefaultlib", "/entry:DllMain@12", "/safeseh:no", "/timestamp:0",
         "/base:0x18000000", f"/out:{destination / 'centauri_movies.dll'}", hook_dir / "movie_hook.obj", hook_dir / "kernel32.lib", hook_dir / "user32.lib"])
+    run(["xcrun", "clang", "--target=i686-pc-windows-msvc", "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror",
+         "-ffreestanding", "-fno-builtin", "-fno-stack-protector", "-c", ROOT / "native/movie_request.c", "-o", hook_dir / "movie_request.obj"])
+    run(command + ["/machine:x86", "/subsystem:windows", "/nodefaultlib", "/entry:mainCRTStartup", "/safeseh:no", "/timestamp:0",
+        f"/out:{destination / 'centauri-movie-request.exe'}", hook_dir / "movie_request.obj", hook_dir / "kernel32.lib"])
+    for name in ["window_hook", "window_loader"]:
+        run(["xcrun", "clang", "--target=i686-pc-windows-msvc", "-std=c99", "-O2", "-Wall", "-Wextra", "-Werror",
+             "-ffreestanding", "-fno-builtin", "-fno-stack-protector", "-c", ROOT / f"native/{name}.c", "-o", hook_dir / f"{name}.obj"])
+    run(command + ["/dll", "/machine:x86", "/nodefaultlib", "/entry:DllMain@12", "/safeseh:no", "/timestamp:0",
+        "/base:0x19000000", f"/out:{destination / 'centauri_window.dll'}", hook_dir / "window_hook.obj", hook_dir / "kernel32.lib", hook_dir / "user32.lib"])
+    run(command + ["/machine:x86", "/subsystem:windows", "/nodefaultlib", "/entry:mainCRTStartup", "/safeseh:no", "/timestamp:0",
+        f"/out:{destination / 'centauri-window-loader.exe'}", hook_dir / "window_loader.obj", hook_dir / "kernel32.lib"])
     # Keep the source available beside the release artifact to satisfy the converter's source distribution.
     dist = ROOT / "dist"
     dist.mkdir(exist_ok=True)
