@@ -13,11 +13,22 @@ Play **Sid Meier's Alpha Centauri** and **Alien Crossfire** on your Mac with you
 - Your GOG game: the installed Mac app, a Windows game folder, or the Windows offline installer with its companion `.bin` files.
 - 4 GB free space and an internet connection for initial setup. Play offline afterward.
 
+## Install
+
+With [Homebrew](https://brew.sh), run this in Terminal:
+
+```sh
+brew install --cask drhelius/centauri/smac-launcher
+```
+
+If Homebrew asks you to trust the third-party tap, run `brew trust --tap drhelius/centauri`, then retry the install command.
+
+Or [download the macOS ZIP](https://github.com/drhelius/smac-gog-mac-launcher/releases), unzip it and move **SMAC Launcher.app** to Applications.
+
 ## Play
 
-1. Download the macOS ZIP, unzip it and move **SMAC Launcher.app** to Applications.
-2. Open it, choose your GOG game files and click **Install**. You can import existing saves during setup.
-3. Select **Alpha Centauri** or **Alien Crossfire** and click **Play**.
+1. Open **SMAC Launcher** from Applications, choose your GOG game files and click **Install**. You can import existing saves during setup.
+2. Select **Alpha Centauri** or **Alien Crossfire** and click **Play**.
 
 Choose fullscreen or a movable window, watch cutscenes, and adjust display, audio and gameplay options in **Advanced Settings**. Use **Saved Games** to find your saves. Updating the launcher keeps your installed game and saves.
 
