@@ -38,16 +38,16 @@ final class ProfileController: NSObject
         workingDirectory.toolTip = "Optional subfolder relative to this configuration's game folder. Leave empty to use the game folder."
         integration.addItems(withTitles: LaunchIntegration.allCases.map(\.title))
         integration.selectItem(at: LaunchIntegration.allCases.firstIndex(of: profile.integration) ?? 0)
-        integration.toolTip = "Automatic detects supported original executables, PRACX and Thinker. Custom runs the selected executable with its own settings and no game patch."
+        integration.toolTip = "Selects the launcher's compatibility behavior; it does not install a mod. Leave Automatic selected unless you need an override. Custom uses the mod's own settings."
         let choose = Interface.button("Choose…", target: self, action: #selector(chooseExecutable))
         let grid = NSGridView(views: [
             [Interface.label("Name"), name],
             [Interface.label("Executable"), Interface.stack([executable, choose], vertical: false)],
             [Interface.label("Arguments"), arguments],
             [Interface.label("Working folder"), workingDirectory],
-            [Interface.label("Integration"), integration]
+            [Interface.label("Compatibility mode"), integration]
         ])
-        grid.column(at: 0).width = 115
+        grid.column(at: 0).width = 135
         grid.columnSpacing = 20
         grid.rowSpacing = 18
         grid.yPlacement = .center

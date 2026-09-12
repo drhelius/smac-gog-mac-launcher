@@ -225,11 +225,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         profilePicker.setAccessibilityLabel("Game configuration")
         modActions.addItem(withTitle: "Mods")
         for (title, action) in [("New Configuration…", #selector(newProfile)), ("Edit Configuration…", #selector(editProfile)),
-                                ("Add Mod Files…", #selector(addModFiles)), ("Run Mod Installer…", #selector(runModInstaller)),
+                                ("Install from Folder…", #selector(addModFiles)), ("Run Installer (.exe)…", #selector(runModInstaller)),
                                 ("Remove Configuration…", #selector(removeProfile))]
         {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
+            if action == #selector(addModFiles) { item.toolTip = "Copy an extracted mod folder's contents into the selected configuration. Matching files are replaced in that configuration only." }
+            if action == #selector(runModInstaller) { item.toolTip = "Run a Windows .exe mod installer in the selected configuration. Choose C:\\SMAC as its destination." }
             modActions.menu?.addItem(item)
         }
         displayGrid = NSGridView(views: [
@@ -430,7 +432,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     {
         guard let profile = selectedProfile, token == nil else { return }
         let panel = NSOpenPanel()
-        panel.title = "Choose Extracted Mod Files"
+        panel.title = "Choose the Extracted Mod Folder"
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         guard panel.runModal() == .OK, let source = panel.url else { return }
@@ -450,7 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         panel.canChooseFiles = true
         guard panel.runModal() == .OK, let installer = panel.url else { return }
         let alert = NSAlert()
-        alert.messageText = "Run Mod Installer"
+        alert.messageText = "Run Windows Mod Installer"
         alert.informativeText = "Choose C:\\SMAC as the destination in the installer."
         let arguments = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
         arguments.placeholderString = "Optional installer arguments"
