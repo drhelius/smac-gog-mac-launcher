@@ -34,3 +34,11 @@ The CLI also supports `create-profile`, `configure-profile`, `add-mod` and `inst
 Keep game files, saves, runtime downloads, logs and signing credentials out of Git. `.local/`, `build/` and `dist/` are ignored. `make clean` removes build outputs and release archives; it keeps `.local/`.
 
 Bug reports should include the app version, macOS version, Mac model and steps to reproduce. Diagnostics are available in **File → Export Diagnostics**; review logs for personal information before attaching them.
+
+## Homebrew releases
+
+**Update Homebrew Tap** updates `Casks/smac-launcher.rb` in `drhelius/homebrew-drhelius` when a stable GitHub release is published. It uses the existing universal release ZIP and verifies its published checksum. Drafts and prereleases are excluded. The workflow can also be run manually for the latest stable release or a specified `x.y.z` tag; it refuses version downgrades.
+
+Set `HOMEBREW_TAP_TOKEN` in this launcher's repository secrets. Use a fine-grained GitHub token owned by `drhelius`, limited to `homebrew-drhelius`, with **Contents: Read and write**. No secret or workflow is needed in the tap repository. The same token name is used by the emulator tap workflows.
+
+After pushing the workflow and configuring the secret, run **Actions → Update Homebrew Tap → Run workflow** to add the current release. Future published releases update the cask automatically. Homebrew downloads the app from GitHub Releases; the matching FFmpeg source stays alongside that release. Game files and saves are preserved when uninstalling, including with `--zap`.
