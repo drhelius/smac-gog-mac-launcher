@@ -169,9 +169,13 @@ public final class CentauriService
                 try FileManager.default.copyItem(at: tools.requestPlayer, to: player)
                 try ModConfiguration.applyMovies(in: directory, receipt: movieReceipt, integration: plan.integration)
             }
-            bridge = try MovieBridge(game: directory, cache: root.appendingPathComponent("MovieCache"),
-                tools: tools, log: layout.logs.appendingPathComponent("movies.log"), token: cancellation,
-                enabled: options.moviesEnabled, volume: options.movieVolume * options.masterVolume / 127, progress: progress)
+            // Mod movie helpers still need the bridge to acknowledge skipped cutscenes.
+            if options.moviesEnabled || plan.integration != .native
+            {
+                bridge = try MovieBridge(game: directory, cache: root.appendingPathComponent("MovieCache"),
+                    tools: tools, log: layout.logs.appendingPathComponent("movies.log"), token: cancellation,
+                    enabled: options.moviesEnabled, volume: options.movieVolume * options.masterVolume / 127, progress: progress)
+            }
         }
         // A custom drive letter can be reassigned by Wine's mounted-volume discovery.
         // Resolve the executable from our explicit working directory, as in the verified prototype.
@@ -202,6 +206,7 @@ public final class CentauriService
         }
         let arguments = [program] + parameters
         var environment = runtime.environment(prefix: prefix)
+        environment["SMAC_MOVIES_ENABLED"] = options.moviesEnabled ? "1" : "0"
         environment["SMAC_WINDOWED"] = options.windowed ? "1" : "0"
         environment["SMAC_WINDOW_WIDTH"] = String(presentation.width)
         environment["SMAC_WINDOW_HEIGHT"] = String(presentation.height)

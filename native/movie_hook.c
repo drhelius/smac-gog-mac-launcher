@@ -246,8 +246,16 @@ BOOL WINAPI DllMain(HMODULE module, DWORD reason, void* reserved)
             !hook_import(base, "SetWindowLongA", set_window_long)) return 0;
     }
     if (!VirtualProtect(movie, 5, 0x40, &protection)) return 0;
-    movie[0] = 0xe9;
-    *(DWORD*)(movie + 1) = (DWORD)show_movie - (DWORD)movie - 5;
+    if (GetEnvironmentVariableA("SMAC_MOVIES_ENABLED", mode, sizeof(mode)) == 1 && mode[0] == '0')
+    {
+        // Skip cutscenes without entering the native movie bridge or the original player.
+        movie[0] = 0xc3;
+    }
+    else
+    {
+        movie[0] = 0xe9;
+        *(DWORD*)(movie + 1) = (DWORD)show_movie - (DWORD)movie - 5;
+    }
     VirtualProtect(movie, 5, protection, &ignored);
     if (!VirtualProtect(destructor, 1, 0x40, &protection)) return 0;
     destructor[0] = 0xc3;
